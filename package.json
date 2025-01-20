@@ -1,0 +1,92 @@
+{
+  "name": "vscode-db-manager",
+  "displayName": "Database Manager",
+  "description": "PostgreSQL Database Manager for VSCode",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "database-explorer",
+          "title": "Database Explorer",
+          "icon": "$(database)"
+        }
+      ]
+    },
+    "views": {
+      "database-explorer": [
+        {
+          "id": "databaseExplorer",
+          "name": "Connections"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "databaseExplorer.addConnection",
+        "title": "Add Connection",
+        "icon": "$(add)" 
+      },
+      {
+        "command": "databaseExplorer.refreshConnection",
+        "title": "Refresh Connection",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "databaseExplorer.editConnection",
+        "title": "Edit Connection",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "databaseExplorer.removeConnection",
+        "title": "Remove Connection",
+        "icon": "$(trash)"
+      }
+    ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "databaseExplorer.refreshConnection",
+          "when": "viewItem == databaseConnection",
+          "group": "inline@1"
+        },
+        {
+          "command": "databaseExplorer.editConnection",
+          "when": "viewItem == databaseConnection",
+          "group": "inline@2"
+        },
+        {
+          "command": "databaseExplorer.removeConnection",
+          "when": "viewItem == databaseConnection",
+          "group": "inline@3"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "databaseExplorer.addConnection",
+          "when": "view == databaseExplorer",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "pg": "^8.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.7",
+    "@types/pg": "^8.6.6",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.4"
+  }
+}
