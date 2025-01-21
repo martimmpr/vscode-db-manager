@@ -40,6 +40,18 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         this._onDidChangeTreeData.fire(item);
     }
 
+    async updateDatabaseFilter(connection: Connection, selectedDatabases: string[]) {
+        const index = this.connections.findIndex(conn => conn.name === connection.name);
+        if (index > -1) {
+            this.connections[index] = {
+                ...connection,
+                selectedDatabases: selectedDatabases.length > 0 ? selectedDatabases : undefined
+            };
+            await this.context.globalState.update('connections', this.connections);
+            this._onDidChangeTreeData.fire();
+        }
+    }
+
     async editConnection(oldConnection: Connection, newConnection: Connection) {
         const index = this.connections.findIndex(conn => conn.name === oldConnection.name);
         if (index > -1) {
@@ -76,7 +88,11 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
             ));
         }
 
-        if (element.type === 'connection' && element.connection) {
+        if (!element.connection) {
+            return [];
+        }
+
+        if (element.type === 'connection') {
             const clientConfig = {
                 user: element.connection.username,
                 host: element.connection.host,
@@ -89,28 +105,6 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
                 const client = new Client(clientConfig);
                 await client.connect();
 
-                if (element.connection.database) {
-                    const checkDb = await client.query(
-                        "SELECT datname FROM pg_database WHERE datname = $1",
-                        [element.connection.database]
-                    );
-                    
-                    await client.end();
-
-                    if (checkDb.rows.length > 0) {
-                        return [new DatabaseItem(
-                            element.connection.database,
-                            vscode.TreeItemCollapsibleState.Collapsed,
-                            'database',
-                            element.connection,
-                            element.connection.database
-                        )];
-                    } else {
-                        vscode.window.showInformationMessage(`Database "${element.connection.database}" does not exist`);
-                        return [];
-                    }
-                }
-
                 const res = await client.query(
                     "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
                 );
@@ -121,12 +115,20 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
                     return [];
                 }
 
-                return res.rows.map(row => new DatabaseItem(
-                    row.datname,
+                let databases = res.rows.map(row => row.datname);
+                
+                if (element.connection.selectedDatabases && element.connection.selectedDatabases.length > 0) {
+                    databases = databases.filter(db => 
+                        element.connection!.selectedDatabases?.includes(db)
+                    );
+                }
+
+                return databases.map(dbName => new DatabaseItem(
+                    dbName,
                     vscode.TreeItemCollapsibleState.Collapsed,
                     'database',
                     element.connection,
-                    row.datname
+                    dbName
                 ));
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -136,7 +138,7 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
             }
         }
 
-        if (element.type === 'database' && element.connection) {
+        if (element.type === 'database' && element.database) {
             const clientConfig = {
                 user: element.connection.username,
                 host: element.connection.host,

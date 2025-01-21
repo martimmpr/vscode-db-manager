@@ -38,6 +38,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "databaseExplorer.filterDatabases",
+        "title": "Filter Databases",
+        "icon": "$(filter)"
+      },
+      {
         "command": "databaseExplorer.editConnection",
         "title": "Edit Connection",
         "icon": "$(edit)"
@@ -52,6 +57,11 @@
       "view/item/context": [
         {
           "command": "databaseExplorer.refreshConnection",
+          "when": "viewItem == databaseConnection",
+          "group": "inline@0"
+        },
+        {
+          "command": "databaseExplorer.filterDatabases",
           "when": "viewItem == databaseConnection",
           "group": "inline@1"
         },

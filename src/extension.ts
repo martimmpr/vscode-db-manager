@@ -36,11 +36,6 @@ export function activate(context: vscode.ExtensionContext) {
             password: true
         });
 
-        const database = await vscode.window.showInputBox({
-            prompt: 'Enter database name (optional)',
-            placeHolder: 'Leave empty to show all databases'
-        });
-
         if (!host || !port || !username || !password) {
             vscode.window.showErrorMessage('All fields except database are required!');
             return;
@@ -51,8 +46,7 @@ export function activate(context: vscode.ExtensionContext) {
             host,
             port: parseInt(port),
             username: username.trim(),
-            password,
-            database: database?.trim() || undefined
+            password
         };
 
         try {
@@ -66,20 +60,8 @@ export function activate(context: vscode.ExtensionContext) {
 
             const client = new Client(clientConfig);
             await client.connect();
-            
-            if (database?.trim()) {
-                const checkDb = await client.query(
-                    "SELECT datname FROM pg_database WHERE datname = $1",
-                    [database.trim()]
-                );
-                
-                if (checkDb.rows.length === 0) {
-                    await client.end();
-                    throw new Error(`Database "${database.trim()}" does not exist`);
-                }
-            }
-            
             await client.end();
+
             await databaseExplorer.addConnection(connection);
             vscode.window.showInformationMessage('Connection added successfully!');
         } catch (error: unknown) {
@@ -98,6 +80,52 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
             vscode.window.showErrorMessage(`Failed to refresh connection: ${errorMessage}`);
+        }
+    });
+
+    let filterDatabases = vscode.commands.registerCommand('databaseExplorer.filterDatabases', async (item: any) => {
+        if (!item?.connection) return;
+
+        try {
+            const clientConfig = {
+                host: item.connection.host,
+                port: item.connection.port,
+                user: item.connection.username,
+                password: item.connection.password,
+                database: 'postgres'
+            };
+
+            const client = new Client(clientConfig);
+            await client.connect();
+
+            const res = await client.query(
+                "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
+            );
+            await client.end();
+
+            const databases = res.rows.map(row => row.datname);
+            
+            const quickPick = vscode.window.createQuickPick();
+            quickPick.canSelectMany = true;
+            quickPick.title = 'Select Databases to Show';
+            quickPick.placeholder = 'Leave empty to show all databases';
+            
+            quickPick.items = databases.map(db => ({
+                label: db,
+                picked: item.connection.selectedDatabases ? 
+                    item.connection.selectedDatabases.includes(db) : false
+            }));
+
+            quickPick.onDidAccept(async () => {
+                const selectedDatabases = quickPick.selectedItems.map(item => item.label);
+                await databaseExplorer.updateDatabaseFilter(item.connection, selectedDatabases);
+                quickPick.dispose();
+            });
+
+            quickPick.show();
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+            vscode.window.showErrorMessage(`Failed to fetch databases: ${errorMessage}`);
         }
     });
 
@@ -130,11 +158,6 @@ export function activate(context: vscode.ExtensionContext) {
             value: item.connection.password
         });
 
-        const database = await vscode.window.showInputBox({
-            prompt: 'Enter database name (optional)',
-            value: item.connection.database
-        });
-
         if (!name || !host || !port || !username || !password) {
             vscode.window.showErrorMessage('All fields except database are required!');
             return;
@@ -145,8 +168,7 @@ export function activate(context: vscode.ExtensionContext) {
             host,
             port: parseInt(port),
             username: username.trim(),
-            password,
-            database: database?.trim() || undefined
+            password
         };
 
         try {
@@ -160,20 +182,8 @@ export function activate(context: vscode.ExtensionContext) {
 
             const client = new Client(clientConfig);
             await client.connect();
-            
-            if (database?.trim()) {
-                const checkDb = await client.query(
-                    "SELECT datname FROM pg_database WHERE datname = $1",
-                    [database.trim()]
-                );
-                
-                if (checkDb.rows.length === 0) {
-                    await client.end();
-                    throw new Error(`Database "${database.trim()}" does not exist`);
-                }
-            }
-            
             await client.end();
+
             await databaseExplorer.editConnection(item.connection, newConnection);
             vscode.window.showInformationMessage('Connection updated successfully!');
         } catch (error: unknown) {
@@ -197,5 +207,5 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(addConnection, refreshConnection, editConnection, removeConnection);
+    context.subscriptions.push(addConnection, refreshConnection, filterDatabases, editConnection, removeConnection);
 }
