@@ -1,7 +1,11 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+
+export type DatabaseType = 'PostgreSQL' | 'MySQL' | 'MariaDB' | 'SQLite';
 
 export interface Connection {
     name: string;
+    type: DatabaseType;
     host: string;
     port: number;
     username: string;
@@ -17,7 +21,8 @@ export class DatabaseItem extends vscode.TreeItem {
         public readonly type: 'connection' | 'database' | 'table' | 'empty',
         public readonly connection?: Connection,
         public readonly database?: string,
-        public readonly table?: string
+        public readonly table?: string,
+        extensionPath?: string
     ) {
         super(label, collapsibleState);
 
@@ -25,7 +30,29 @@ export class DatabaseItem extends vscode.TreeItem {
         
         switch (type) {
             case 'connection':
-                this.iconPath = new vscode.ThemeIcon('database');
+                // Set icon based on database type using custom SVG logos
+                if (connection && extensionPath) {
+                    const iconFolder = path.join(extensionPath, 'src', 'icons');
+                    switch (connection.type) {
+                        case 'PostgreSQL':
+                            this.iconPath = path.join(iconFolder, 'postgresql.svg');
+                            break;
+                        case 'MySQL':
+                            this.iconPath = path.join(iconFolder, 'mysql.svg');
+                            break;
+                        case 'MariaDB':
+                            this.iconPath = path.join(iconFolder, 'mariadb.svg');
+                            break;
+                        case 'SQLite':
+                            this.iconPath = path.join(iconFolder, 'sqlite.svg');
+                            break;
+                        default:
+                            this.iconPath = new vscode.ThemeIcon('database');
+                            break;
+                    }
+                } else {
+                    this.iconPath = new vscode.ThemeIcon('database');
+                }
                 break;
             case 'database':
                 this.iconPath = new vscode.ThemeIcon('library');

@@ -166,7 +166,10 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
                 conn.name,
                 vscode.TreeItemCollapsibleState.Collapsed,
                 'connection',
-                conn
+                conn,
+                undefined,
+                undefined,
+                this.context.extensionPath
             ));
         }
 

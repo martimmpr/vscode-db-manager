@@ -16,21 +16,34 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (!name) return;
 
+        const dbType = await vscode.window.showQuickPick(
+            ['PostgreSQL', 'MySQL', 'MariaDB', 'SQLite'],
+            {
+                placeHolder: 'Select database type',
+                canPickMany: false
+            }
+        );
+
+        if (!dbType) return;
+
         const host = await vscode.window.showInputBox({
             prompt: 'Enter host',
             placeHolder: 'localhost',
             value: 'localhost'
         });
 
+        const defaultPort = dbType === 'PostgreSQL' ? '5432' : 
+                           dbType === 'MySQL' || dbType === 'MariaDB' ? '3306' : '0';
+
         const port = await vscode.window.showInputBox({
             prompt: 'Enter port',
-            placeHolder: '5432',
-            value: '5432'
+            placeHolder: defaultPort,
+            value: defaultPort
         });
 
         const username = await vscode.window.showInputBox({
             prompt: 'Enter username',
-            placeHolder: 'postgres'
+            placeHolder: dbType === 'PostgreSQL' ? 'postgres' : 'root'
         });
 
         const password = await vscode.window.showInputBox({
@@ -45,6 +58,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const connection: Connection = {
             name,
+            type: dbType as 'PostgreSQL' | 'MySQL' | 'MariaDB' | 'SQLite',
             host,
             port: parseInt(port),
             username: username.trim(),
@@ -139,6 +153,18 @@ export function activate(context: vscode.ExtensionContext) {
             value: item.connection.name
         });
 
+        if (!name) return;
+
+        const dbType = await vscode.window.showQuickPick(
+            ['PostgreSQL', 'MySQL', 'MariaDB', 'SQLite'],
+            {
+                placeHolder: 'Select database type',
+                canPickMany: false
+            }
+        );
+
+        if (!dbType) return;
+
         const host = await vscode.window.showInputBox({
             prompt: 'Enter host',
             value: item.connection.host
@@ -167,6 +193,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const newConnection: Connection = {
             name,
+            type: dbType as 'PostgreSQL' | 'MySQL' | 'MariaDB' | 'SQLite',
             host,
             port: parseInt(port),
             username: username.trim(),
