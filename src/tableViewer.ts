@@ -74,7 +74,7 @@ export class TableViewer {
                             await this.insertRow(tableName, message.row);
                             break;
                         case 'query':
-                            await this.loadTableData(tableName, message.search, message.limit, message.offset);
+                            await this.loadTableData(tableName, message.search, message.limit, message.offset, message.sortColumn, message.sortDirection);
                             break;
                         case 'checkPendingChanges':
                             // Check if there are pending changes before refresh
@@ -90,7 +90,7 @@ export class TableViewer {
                                     }
                                 });
                             } else {
-                                await this.loadTableData(tableName, message.search, message.limit, message.offset);
+                                await this.loadTableData(tableName, message.search, message.limit, message.offset, message.sortColumn, message.sortDirection);
                             }
                             break;
                     }
@@ -109,7 +109,9 @@ export class TableViewer {
         tableName: string, 
         search?: string, 
         limit: number = 100, 
-        offset: number = 0
+        offset: number = 0,
+        sortColumn?: string,
+        sortDirection?: string
     ) {
         if (!this.client || !TableViewer.currentPanel) return;
 
@@ -159,6 +161,11 @@ export class TableViewer {
             );
             const totalRows = parseInt(countResult.rows[0].count);
 
+            // Add ORDER BY clause if sort is specified
+            if (sortColumn && sortDirection) {
+                query += ` ORDER BY ${sortColumn} ${sortDirection.toUpperCase()}`;
+            }
+
             query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
             params.push(limit, offset);
 
@@ -172,7 +179,9 @@ export class TableViewer {
                 totalRows,
                 limit,
                 offset,
-                search
+                search,
+                sortColumn,
+                sortDirection
             );
 
         } catch (error) {
@@ -292,7 +301,9 @@ export class TableViewer {
         totalRows: number,
         limit: number,
         offset: number,
-        search?: string
+        search?: string,
+        sortColumn?: string,
+        sortDirection?: string
     ): string {
         const currentPage = Math.floor(offset / limit) + 1;
         const totalPages = Math.ceil(totalRows / limit);
@@ -578,9 +589,70 @@ export class TableViewer {
             position: relative;
         }
 
+        th.sortable {
+            padding-right: 35px;
+        }
+
         th.checkbox-col {
             width: 40px;
             text-align: center;
+        }
+
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+
+        th.sortable:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        th.sortable .sort-icon {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .sort-icon {
+            display: inline-flex;
+            flex-direction: column;
+            opacity: 1;
+            color: var(--vscode-foreground);
+        }
+
+        .sort-icon.active {
+            opacity: 1;
+            color: #4A9EFF;
+        }
+
+        .sort-icon:hover {
+            opacity: 0.6;
+        }
+        
+        .sort-icon svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+
+        .sort-icon .sort-up {
+            margin-bottom: -6px;
+            display: block;
+        }
+
+        .sort-icon .sort-down {
+            margin-top: -6px;
+            display: block;
+        }
+
+        .sort-icon.asc .sort-down {
+            display: none !important;
+        }
+
+        .sort-icon.desc .sort-up {
+            display: none !important;
         }
 
         td {
@@ -860,10 +932,18 @@ export class TableViewer {
                     <th class="checkbox-col">
                         <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)">
                     </th>
-                    ${columns.map(col => `
-                        <th>
+                    ${columns.map((col, colIndex) => `
+                        <th class="sortable" onclick="sortByColumn('${col.column_name}', ${colIndex})">
                             ${primaryKeys.includes(col.column_name) ? '<span class="pk-indicator">🔑</span>' : ''}${col.column_name}${col.is_nullable === 'NO' && !primaryKeys.includes(col.column_name) ? '<span class="required-indicator">*</span>' : ''}
                             <span class="column-type">(${col.data_type})</span>
+                            <span class="sort-icon" data-column="${col.column_name}">
+                                <svg class="sort-up" viewBox="0 0 16 16">
+                                    <path d="M8 4 L4 10 L12 10 Z"/>
+                                </svg>
+                                <svg class="sort-down" viewBox="0 0 16 16">
+                                    <path d="M8 12 L4 6 L12 6 Z"/>
+                                </svg>
+                            </span>
                         </th>
                     `).join('')}
                 </tr>
@@ -922,6 +1002,10 @@ export class TableViewer {
         let currentOffset = ${offset};
         let pendingChanges = new Map(); // Map<rowIndex, {originalRow, changes}>
         let editingCell = null;
+        let currentSort = { 
+            column: ${sortColumn ? `'${sortColumn}'` : 'null'}, 
+            direction: ${sortDirection ? `'${sortDirection}'` : 'null'} 
+        }; // null, 'asc', 'desc'
 
         // Update search clear button visibility
         function updateSearchClearButton() {
@@ -1226,13 +1310,74 @@ export class TableViewer {
             updateCommitRevertButtons();
         }
 
+        function sortByColumn(columnName, columnIndex) {
+            // Determine new sort direction
+            let newDirection;
+            if (currentSort.column === columnName) {
+                // Same column - cycle through: null -> asc -> desc -> null
+                if (currentSort.direction === null) {
+                    newDirection = 'asc';
+                } else if (currentSort.direction === 'asc') {
+                    newDirection = 'desc';
+                } else {
+                    newDirection = null;
+                }
+            } else {
+                // Different column - reset previous column and start with asc
+                newDirection = 'asc';
+            }
+
+            // Update current sort state
+            currentSort.column = newDirection === null ? null : columnName;
+            currentSort.direction = newDirection;
+
+            // Update all sort icons - remove active state from all
+            document.querySelectorAll('.sort-icon').forEach(icon => {
+                icon.classList.remove('active', 'asc', 'desc');
+            });
+
+            // Update the clicked column's icon
+            if (newDirection !== null) {
+                const sortIcon = document.querySelector(\`.sort-icon[data-column="\${columnName}"]\`);
+                if (sortIcon) {
+                    sortIcon.classList.add('active', newDirection);
+                }
+            }
+
+            // Send query with sort parameters
+            const searchValue = document.getElementById('searchInput').value;
+            vscode.postMessage({
+                command: 'query',
+                search: searchValue || undefined,
+                limit: limit,
+                offset: currentOffset,
+                sortColumn: currentSort.column,
+                sortDirection: currentSort.direction
+            });
+        }
+
+        // Apply sort state on page load
+        function applySortState() {
+            if (currentSort.column && currentSort.direction) {
+                const sortIcon = document.querySelector(\`.sort-icon[data-column="\${currentSort.column}"]\`);
+                if (sortIcon) {
+                    sortIcon.classList.add('active', currentSort.direction);
+                }
+            }
+        }
+
+        // Call applySortState when the page loads
+        applySortState();
+
         function search() {
             const searchValue = document.getElementById('searchInput').value;
             vscode.postMessage({
                 command: 'query',
                 search: searchValue,
                 limit: limit,
-                offset: 0
+                offset: 0,
+                sortColumn: currentSort.column,
+                sortDirection: currentSort.direction
             });
         }
 
@@ -1256,7 +1401,9 @@ export class TableViewer {
                     command: 'query',
                     search: searchValue || undefined,
                     limit: limit,
-                    offset: currentOffset
+                    offset: currentOffset,
+                    sortColumn: currentSort.column,
+                    sortDirection: currentSort.direction
                 });
             }
         }
@@ -1268,7 +1415,9 @@ export class TableViewer {
                 command: 'query',
                 search: searchValue || undefined,
                 limit: limit,
-                offset: 0
+                offset: 0,
+                sortColumn: currentSort.column,
+                sortDirection: currentSort.direction
             });
         }
 
@@ -1279,7 +1428,9 @@ export class TableViewer {
                 command: 'query',
                 search: searchValue || undefined,
                 limit: limit,
-                offset: newOffset
+                offset: newOffset,
+                sortColumn: currentSort.column,
+                sortDirection: currentSort.direction
             });
         }
 
@@ -1404,7 +1555,9 @@ export class TableViewer {
                         command: 'query',
                         search: searchValue || undefined,
                         limit: limit,
-                        offset: currentOffset
+                        offset: currentOffset,
+                        sortColumn: currentSort.column,
+                        sortDirection: currentSort.direction
                     });
                     break;
                 case 'revertFromBackend':
@@ -1415,7 +1568,9 @@ export class TableViewer {
                         command: 'query',
                         search: searchValueRevert || undefined,
                         limit: limit,
-                        offset: currentOffset
+                        offset: currentOffset,
+                        sortColumn: currentSort.column,
+                        sortDirection: currentSort.direction
                     });
                     break;
             }
