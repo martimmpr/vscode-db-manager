@@ -118,8 +118,12 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
                 await client.end();
 
                 if (res.rows.length === 0) {
-                    vscode.window.showInformationMessage('No databases found in this connection.');
-                    return [];
+                    return [new DatabaseItem(
+                        'No databases found!',
+                        vscode.TreeItemCollapsibleState.None,
+                        'empty',
+                        element.connection
+                    )];
                 }
 
                 let databases = res.rows.map(row => row.datname);
@@ -128,6 +132,15 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
                     databases = databases.filter(db => 
                         element.connection!.selectedDatabases?.includes(db)
                     );
+                }
+
+                if (databases.length === 0) {
+                    return [new DatabaseItem(
+                        'No databases found!',
+                        vscode.TreeItemCollapsibleState.None,
+                        'empty',
+                        element.connection
+                    )];
                 }
 
                 return databases.map(dbName => new DatabaseItem(
@@ -162,6 +175,16 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
                     "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
                 );
                 await client.end();
+
+                if (res.rows.length === 0) {
+                    return [new DatabaseItem(
+                        'No tables found!',
+                        vscode.TreeItemCollapsibleState.None,
+                        'empty',
+                        element.connection,
+                        element.database
+                    )];
+                }
     
                 return res.rows.map(row => new DatabaseItem(
                     row.table_name,

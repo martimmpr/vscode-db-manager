@@ -13,7 +13,7 @@ export class DatabaseItem extends vscode.TreeItem {
     constructor(
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly type: 'connection' | 'database' | 'table',
+        public readonly type: 'connection' | 'database' | 'table' | 'empty',
         public readonly connection?: Connection,
         public readonly database?: string,
         public readonly table?: string
@@ -31,6 +31,10 @@ export class DatabaseItem extends vscode.TreeItem {
                 break;
             case 'table':
                 this.iconPath = new vscode.ThemeIcon('window');
+                break;
+            case 'empty':
+                this.iconPath = new vscode.ThemeIcon('info');
+                this.contextValue = 'empty';
                 break;
         }
     }
