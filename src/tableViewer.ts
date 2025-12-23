@@ -388,15 +388,19 @@ export class TableViewer {
             width: 20px;
             height: 20px;
             border-radius: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .search-clear:hover {
             opacity: 1;
-            background: var(--vscode-inputOption-hoverBackground);
+            background-color: var(--vscode-focusBorder);
+            color: var(--vscode-foreground);
         }
 
         .search-clear.visible {
-            display: block;
+            display: flex;
         }
 
         .toolbar-separator {
@@ -624,7 +628,7 @@ export class TableViewer {
 
         .sort-icon.active {
             opacity: 1;
-            color: #4A9EFF;
+            color: var(--vscode-focusBorder);
         }
 
         .sort-icon:hover {
@@ -836,7 +840,8 @@ export class TableViewer {
             font-size: 13px;
         }
 
-        .form-group input {
+        .form-group input,
+        .form-group select {
             width: 100%;
             padding: 8px;
             background: var(--vscode-input-background);
@@ -844,6 +849,40 @@ export class TableViewer {
             border: 1px solid var(--vscode-input-border);
             border-radius: 2px;
             font-size: 13px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: 1px solid var(--vscode-focusBorder);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .form-group select {
+            cursor: pointer;
+            background: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-dropdown-border);
+        }
+
+        .form-group input[type="date"],
+        .form-group input[type="time"],
+        .form-group input[type="datetime-local"] {
+            color-scheme: dark;
+        }
+
+        .form-group input[type="date"]::-webkit-calendar-picker-indicator,
+        .form-group input[type="time"]::-webkit-calendar-picker-indicator,
+        .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+            filter: brightness(0) invert(1);
+            cursor: pointer;
+            opacity: 0.9;
+        }
+
+        .form-group input[type="date"]::-webkit-calendar-picker-indicator:hover,
+        .form-group input[type="time"]::-webkit-calendar-picker-indicator:hover,
+        .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+            opacity: 1;
+            filter: brightness(0) invert(1) brightness(1.2);
         }
 
         .modal-actions {
@@ -971,26 +1010,86 @@ export class TableViewer {
         <div class="modal-content">
             <div class="modal-header">Add New Row</div>
             <form id="addForm">
-                ${columns.map(col => `
+                ${columns.map(col => {
+                    const isPrimaryKey = primaryKeys.includes(col.column_name);
+                    const isRequired = col.is_nullable === 'NO' && !col.column_default && !isPrimaryKey;
+                    const dataType = col.data_type.toLowerCase();
+                    
+                    // Determine input type and placeholder
+                    let inputType = 'text';
+                    let placeholder = col.is_nullable === 'YES' ? 'NULL' : 'NOT NULL';
+                    let step = '';
+                    
+                    if (dataType === 'boolean' || dataType === 'bool') {
+                        inputType = 'select';
+                        placeholder = '';
+                    } else if (dataType.includes('int') || dataType === 'smallint' || dataType === 'bigint' || dataType === 'serial' || dataType === 'bigserial') {
+                        inputType = 'number';
+                        step = '1';
+                        placeholder = col.is_nullable === 'YES' ? 'NULL' : 'e.g., 123';
+                    } else if (dataType.includes('numeric') || dataType.includes('decimal') || dataType.includes('float') || dataType.includes('double') || dataType === 'real' || dataType === 'money') {
+                        inputType = 'number';
+                        step = 'any';
+                        placeholder = col.is_nullable === 'YES' ? 'NULL' : 'e.g., 123.45';
+                    } else if (dataType === 'date') {
+                        inputType = 'date';
+                        placeholder = col.is_nullable === 'YES' ? 'NULL' : '';
+                    } else if (dataType.includes('timestamp') || dataType === 'datetime') {
+                        inputType = 'datetime-local';
+                        placeholder = col.is_nullable === 'YES' ? 'NULL' : '';
+                    } else if (dataType === 'time') {
+                        inputType = 'time';
+                        placeholder = col.is_nullable === 'YES' ? 'NULL' : '';
+                    } else if (dataType === 'uuid') {
+                        placeholder = col.is_nullable === 'YES' ? 'NULL' : 'e.g., 550e8400-e29b-41d4-a716-446655440000';
+                    } else if (dataType === 'text' || dataType.includes('char')) {
+                        placeholder = col.is_nullable === 'YES' ? 'NULL' : 'e.g., Sample text';
+                    }
+                    
+                    return `
                     <div class="form-group">
                         <label>
-                            ${col.column_name}
-                            ${col.is_nullable === 'NO' ? '<span style="color: red;">*</span>' : ''}
+                            ${isPrimaryKey ? '<span class="pk-indicator">🔑</span>' : ''}${col.column_name}
+                            ${isRequired ? '<span style="color: red;">*</span>' : ''}
                             <span style="color: var(--vscode-descriptionForeground); font-size: 11px;">
                                 (${col.data_type})
                             </span>
                         </label>
-                        <input 
-                            type="text" 
-                            name="${col.column_name}"
-                            ${col.is_nullable === 'NO' && !col.column_default ? 'required' : ''}
-                            placeholder="${col.column_default || 'NULL'}"
-                        >
+                        ${inputType === 'select' ? `
+                            <select name="${col.column_name}" ${isRequired ? 'required' : ''}>
+                                ${col.is_nullable === 'YES' ? '<option value="">NULL</option>' : ''}
+                                <option value="true">true</option>
+                                <option value="false">false</option>
+                            </select>
+                        ` : inputType === 'number' ? `
+                            <input 
+                                type="number"
+                                step="${step}"
+                                name="${col.column_name}"
+                                ${isRequired ? 'required' : ''}
+                                placeholder="${placeholder}"
+                            >
+                        ` : inputType === 'date' || inputType === 'time' || inputType === 'datetime-local' ? `
+                            <input 
+                                type="${inputType}"
+                                name="${col.column_name}"
+                                ${isRequired ? 'required' : ''}
+                                placeholder="${placeholder}"
+                            >
+                        ` : `
+                            <input 
+                                type="text"
+                                name="${col.column_name}"
+                                ${isRequired ? 'required' : ''}
+                                placeholder="${placeholder}"
+                            >
+                        `}
                     </div>
-                `).join('')}
+                    `;
+                }).join('')}
                 <div class="modal-actions">
-                    <button type="button" class="secondary" onclick="hideAddModal()">Cancel</button>
                     <button type="submit">Add</button>
+                    <button type="button" class="secondary" onclick="hideAddModal()">Cancel</button>
                 </div>
             </form>
         </div>
