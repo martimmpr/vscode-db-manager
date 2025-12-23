@@ -26,7 +26,10 @@ export class TableViewer {
                 vscode.ViewColumn.One,
                 {
                     enableScripts: true,
-                    retainContextWhenHidden: true
+                    retainContextWhenHidden: true,
+                    enableForms: true,
+                    // Remove sandbox restrictions to allow modals
+                    localResourceRoots: []
                 }
             );
 
@@ -65,7 +68,50 @@ export class TableViewer {
                             await this.loadTableData(tableName);
                             break;
                         case 'delete':
-                            await this.deleteRow(tableName, message.row);
+                            // Ask for confirmation
+                            const confirmDelete = await vscode.window.showWarningMessage(
+                                'Are you sure you want to delete this row?',
+                                'Yes',
+                                'No'
+                            );
+                            if (confirmDelete === 'Yes') {
+                                await this.deleteRow(tableName, message.row);
+                            }
+                            break;
+                        case 'deleteMultiple':
+                            // Handle multiple row deletion
+                            if (message.rows && Array.isArray(message.rows)) {
+                                // Ask for confirmation
+                                const answer = await vscode.window.showWarningMessage(
+                                    `Are you sure you want to delete ${message.rows.length} row(s)?`,
+                                    'Yes',
+                                    'No'
+                                );
+                                
+                                if (answer !== 'Yes') {
+                                    return;
+                                }
+                                
+                                let successCount = 0;
+                                let failCount = 0;
+                                
+                                for (const row of message.rows) {
+                                    const success = await this.deleteRow(tableName, row, true);
+                                    if (success) {
+                                        successCount++;
+                                    } else {
+                                        failCount++;
+                                    }
+                                }
+                                
+                                await this.loadTableData(tableName);
+                                
+                                if (failCount === 0) {
+                                    vscode.window.showInformationMessage(`${successCount} row(s) deleted successfully!`);
+                                } else {
+                                    vscode.window.showWarningMessage(`${successCount} row(s) deleted, ${failCount} failed.`);
+                                }
+                            }
                             break;
                         case 'update':
                             await this.updateRow(tableName, message.row, message.changes);
@@ -134,6 +180,27 @@ export class TableViewer {
 
             const primaryKeys = pkResult.rows.map(row => row.attname);
 
+            // Get unique constraints
+            const uniqueResult = await this.client.query(`
+                SELECT a.attname
+                FROM pg_index i
+                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                WHERE i.indrelid = $1::regclass AND i.indisunique AND NOT i.indisprimary
+            `, [tableName]);
+
+            const uniqueKeys = uniqueResult.rows.map(row => row.attname);
+
+            // Get identity/auto-increment columns
+            const identityResult = await this.client.query(`
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = $1 
+                AND table_schema = 'public'
+                AND (is_identity = 'YES' OR column_default LIKE 'nextval%')
+            `, [tableName]);
+
+            const identityColumns = identityResult.rows.map(row => row.column_name);
+
             // Build query
             let query = `SELECT * FROM ${tableName}`;
             const params: any[] = [];
@@ -176,6 +243,8 @@ export class TableViewer {
                 columnsResult.rows,
                 dataResult.rows,
                 primaryKeys,
+                uniqueKeys,
+                identityColumns,
                 totalRows,
                 limit,
                 offset,
@@ -190,7 +259,7 @@ export class TableViewer {
         }
     }
 
-    private async deleteRow(tableName: string, row: any) {
+    private async deleteRow(tableName: string, row: any, skipReload: boolean = false) {
         if (!this.client) return;
 
         try {
@@ -204,7 +273,7 @@ export class TableViewer {
 
             if (pkResult.rows.length === 0) {
                 vscode.window.showErrorMessage('Cannot delete: table has no primary key');
-                return;
+                return false;
             }
 
             const whereConditions = pkResult.rows
@@ -218,12 +287,17 @@ export class TableViewer {
                 values
             );
 
-            await this.loadTableData(tableName);
-            vscode.window.showInformationMessage('Row deleted successfully!');
+            if (!skipReload) {
+                await this.loadTableData(tableName);
+                vscode.window.showInformationMessage('Row deleted successfully!');
+            }
+
+            return true;
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to delete row: ${errorMessage}`);
+            return false;
         }
     }
 
@@ -298,6 +372,8 @@ export class TableViewer {
         columns: any[],
         rows: any[],
         primaryKeys: string[],
+        uniqueKeys: string[],
+        identityColumns: string[],
         totalRows: number,
         limit: number,
         offset: number,
@@ -778,6 +854,25 @@ export class TableViewer {
             fill: currentColor;
         }
 
+        .unique-indicator {
+            color: var(--vscode-charts-blue);
+            margin-right: 5px;
+            display: inline-flex;
+            align-items: center;
+            vertical-align: middle;
+            font-size: 10px;
+        }
+
+        .identity-indicator {
+            color: var(--vscode-charts-green);
+            margin-right: 5px;
+            display: inline-flex;
+            align-items: center;
+            vertical-align: middle;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
         .required-indicator {
             color: #f14c4c;
             margin-left: 3px;
@@ -973,7 +1068,7 @@ export class TableViewer {
                     </th>
                     ${columns.map((col, colIndex) => `
                         <th class="sortable" onclick="sortByColumn('${col.column_name}', ${colIndex})">
-                            ${primaryKeys.includes(col.column_name) ? '<span class="pk-indicator">🔑</span>' : ''}${col.column_name}${col.is_nullable === 'NO' && !primaryKeys.includes(col.column_name) ? '<span class="required-indicator">*</span>' : ''}
+                            ${primaryKeys.includes(col.column_name) ? '<span class="pk-indicator">🔑</span>' : ''}${uniqueKeys.includes(col.column_name) ? '<span class="unique-indicator">🔐</span>' : ''}${identityColumns.includes(col.column_name) ? '<span class="identity-indicator">↻</span>' : ''}${col.column_name}${col.is_nullable === 'NO' && !primaryKeys.includes(col.column_name) ? '<span class="required-indicator">*</span>' : ''}
                             <span class="column-type">(${col.data_type})</span>
                             <span class="sort-icon" data-column="${col.column_name}">
                                 <svg class="sort-up" viewBox="0 0 16 16">
@@ -1012,6 +1107,8 @@ export class TableViewer {
             <form id="addForm">
                 ${columns.map(col => {
                     const isPrimaryKey = primaryKeys.includes(col.column_name);
+                    const isUnique = uniqueKeys.includes(col.column_name);
+                    const isIdentity = identityColumns.includes(col.column_name);
                     const isRequired = col.is_nullable === 'NO' && !col.column_default && !isPrimaryKey;
                     const dataType = col.data_type.toLowerCase();
                     
@@ -1049,7 +1146,7 @@ export class TableViewer {
                     return `
                     <div class="form-group">
                         <label>
-                            ${isPrimaryKey ? '<span class="pk-indicator">🔑</span>' : ''}${col.column_name}
+                            ${isPrimaryKey ? '<span class="pk-indicator">🔑</span>' : ''}${isUnique ? '<span class="unique-indicator">🔐</span>' : ''}${isIdentity ? '<span class="identity-indicator">↻</span>' : ''}${col.column_name}
                             ${isRequired ? '<span style="color: red;">*</span>' : ''}
                             <span style="color: var(--vscode-descriptionForeground); font-size: 11px;">
                                 (${col.data_type})
@@ -1571,28 +1668,27 @@ export class TableViewer {
             const row = document.querySelector(\`tr[data-row-index="\${index}"]\`);
             const rowData = JSON.parse(row.getAttribute('data-row'));
             
-            if (confirm('Are you sure you want to delete this row?')) {
-                vscode.postMessage({
-                    command: 'delete',
-                    row: rowData
-                });
-            }
+            vscode.postMessage({
+                command: 'delete',
+                row: rowData
+            });
         }
 
         function deleteSelected() {
             const selected = document.querySelectorAll('.row-checkbox:checked');
             if (selected.length === 0) return;
             
-            if (confirm(\`Are you sure you want to delete \${selected.length} row(s)?\`)) {
-                selected.forEach(checkbox => {
-                    const row = checkbox.closest('tr');
-                    const rowData = JSON.parse(row.getAttribute('data-row'));
-                    vscode.postMessage({
-                        command: 'delete',
-                        row: rowData
-                    });
-                });
-            }
+            const rows = [];
+            selected.forEach(checkbox => {
+                const row = checkbox.closest('tr');
+                const rowData = JSON.parse(row.getAttribute('data-row'));
+                rows.push(rowData);
+            });
+            
+            vscode.postMessage({
+                command: 'deleteMultiple',
+                rows: rows
+            });
         }
 
         function showAddModal() {

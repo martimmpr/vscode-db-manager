@@ -7,6 +7,7 @@ export interface Connection {
     username: string;
     password: string;
     selectedDatabases?: string[];
+    selectedTables?: { [database: string]: string[] };
 }
 
 export class DatabaseItem extends vscode.TreeItem {
