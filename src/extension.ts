@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
 import { Client } from 'pg';
 import { DatabaseExplorer } from './databaseExplorer';
+import { TableViewer } from './tableViewer';
 import { Connection } from './types';
 
 export function activate(context: vscode.ExtensionContext) {
     const databaseExplorer = new DatabaseExplorer(context);
+    const tableViewer = new TableViewer(context);
 
     let addConnection = vscode.commands.registerCommand('databaseExplorer.addConnection', async () => {
         const name = await vscode.window.showInputBox({
@@ -207,5 +209,21 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(addConnection, refreshConnection, filterDatabases, editConnection, removeConnection);
+    let openTable = vscode.commands.registerCommand('databaseExplorer.openTable', async (item: any) => {
+        if (!item?.connection || !item?.database || !item?.table) {
+            vscode.window.showErrorMessage('Invalid table item');
+            return;
+        }
+
+        await tableViewer.openTable(item.connection, item.database, item.table);
+    });
+
+    context.subscriptions.push(
+        addConnection, 
+        refreshConnection, 
+        filterDatabases, 
+        editConnection, 
+        removeConnection,
+        openTable
+    );
 }

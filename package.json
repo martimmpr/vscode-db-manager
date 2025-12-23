@@ -30,7 +30,7 @@
       {
         "command": "databaseExplorer.addConnection",
         "title": "Add Connection",
-        "icon": "$(add)" 
+        "icon": "$(add)"
       },
       {
         "command": "databaseExplorer.refreshConnection",
@@ -51,6 +51,11 @@
         "command": "databaseExplorer.removeConnection",
         "title": "Remove Connection",
         "icon": "$(trash)"
+      },
+      {
+        "command": "databaseExplorer.openTable",
+        "title": "Open Table",
+        "icon": "$(table)"
       }
     ],
     "menus": {

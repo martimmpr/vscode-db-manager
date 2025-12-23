@@ -74,6 +74,13 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         const treeItem = element;
         if (element.type === 'connection') {
             treeItem.contextValue = 'databaseConnection';
+        } else if (element.type === 'table') {
+            treeItem.contextValue = 'table';
+            treeItem.command = {
+                command: 'databaseExplorer.openTable',
+                title: 'Open Table',
+                arguments: [element]
+            };
         }
         return treeItem;
     }
@@ -111,7 +118,7 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
                 await client.end();
 
                 if (res.rows.length === 0) {
-                    vscode.window.showInformationMessage('No databases found in this connection');
+                    vscode.window.showInformationMessage('No databases found in this connection.');
                     return [];
                 }
 
