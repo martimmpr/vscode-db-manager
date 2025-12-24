@@ -155,6 +155,98 @@ export class PostgreSQLAdapter implements IDatabaseAdapter {
         return result;
     }
 
+    async exportDatabase(database: string, includeData: boolean): Promise<string> {
+        const client = await this.getClient(database);
+        let sql = `-- PostgreSQL Database Export: ${database}\n`;
+        sql += `-- Generated on: ${new Date().toISOString()}\n\n`;
+        sql += `\\c ${database};\n\n`;
+
+        // Get all tables
+        const tables = await this.getTables(database);
+
+        if (tables.length === 0) {
+            sql += '-- No tables found in this database\n';
+            return sql;
+        }
+
+        for (let i = 0; i < tables.length; i++) {
+            sql += await this.exportTable(database, tables[i], includeData);
+            if (i < tables.length - 1) {
+                sql += '\n\n';
+            }
+        }
+
+        return sql;
+    }
+
+    async exportTable(database: string, tableName: string, includeData: boolean): Promise<string> {
+        const client = await this.getClient(database);
+        let sql = `-- Table: ${tableName}\n`;
+
+        // Get table structure
+        const columns = await this.getColumns(database, tableName);
+        const primaryKeys = await this.getPrimaryKeys(database, tableName);
+
+        // Create table statement
+        sql += `DROP TABLE IF EXISTS "${tableName}" CASCADE;\n`;
+        sql += `CREATE TABLE "${tableName}" (\n`;
+
+        const columnDefs = columns.map((col: ColumnInfo) => {
+            let def = `  "${col.column_name}" ${col.data_type}`;
+            
+            if (col.character_maximum_length) {
+                def += `(${col.character_maximum_length})`;
+            } else if (col.numeric_precision && col.numeric_scale !== null) {
+                def += `(${col.numeric_precision}, ${col.numeric_scale})`;
+            }
+
+            if (col.is_nullable === 'NO') {
+                def += ' NOT NULL';
+            }
+
+            if (col.column_default) {
+                def += ` DEFAULT ${col.column_default}`;
+            }
+
+            return def;
+        });
+
+        sql += columnDefs.join(',\n');
+
+        // Add primary key constraint
+        if (primaryKeys.length > 0) {
+            const pkColumns = primaryKeys.map(pk => `"${pk}"`).join(', ');
+            sql += `,\n  PRIMARY KEY (${pkColumns})`;
+        }
+
+        sql += '\n);\n';
+
+        // Export data if requested
+        if (includeData) {
+            const result = await client.query(`SELECT * FROM "${tableName}"`);
+            
+            if (result.rows.length > 0) {
+                sql += `\n-- Data for table: ${tableName}\n`;
+                
+                for (const row of result.rows) {
+                    const columnNames = Object.keys(row).map(col => `"${col}"`).join(', ');
+                    const values = Object.values(row).map(val => {
+                        if (val === null) return 'NULL';
+                        if (typeof val === 'number') return val;
+                        if (typeof val === 'boolean') return val;
+                        if (val instanceof Date) return `'${val.toISOString()}'`;
+                        if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+                        return `'${String(val).replace(/'/g, "''")}'`;
+                    }).join(', ');
+                    
+                    sql += `INSERT INTO "${tableName}" (${columnNames}) VALUES (${values});\n`;
+                }
+            }
+        }
+
+        return sql;
+    }
+
     async close(): Promise<void> {
         if (this.client) {
             try {

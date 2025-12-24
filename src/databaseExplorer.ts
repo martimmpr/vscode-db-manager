@@ -447,4 +447,17 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
             throw error;
         }
     }
+
+    async exportDatabase(connection: Connection, database: string, includeData: boolean): Promise<string> {
+        const adapter = DatabaseAdapterFactory.createAdapter(connection);
+        
+        try {
+            const sql = await adapter.exportDatabase(database, includeData);
+            await adapter.close();
+            return sql;
+        } catch (error) {
+            await adapter.close();
+            throw error;
+        }
+    }
 }

@@ -81,6 +81,11 @@
         "command": "databaseExplorer.deleteTable",
         "title": "Delete Table",
         "icon": "$(trash)"
+      },
+      {
+        "command": "databaseExplorer.exportDatabase",
+        "title": "Export Database",
+        "icon": "$(export)"
       }
     ],
     "menus": {
@@ -119,6 +124,11 @@
           "command": "databaseExplorer.filterTables",
           "when": "viewItem == database",
           "group": "inline@2"
+        },
+        {
+          "command": "databaseExplorer.exportDatabase",
+          "when": "viewItem == database",
+          "group": "inline@3"
         },
         {
           "command": "databaseExplorer.editTable",

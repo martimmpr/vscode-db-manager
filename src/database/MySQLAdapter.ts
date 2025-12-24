@@ -172,6 +172,99 @@ export class MySQLAdapter implements IDatabaseAdapter {
         return rows;
     }
 
+    async exportDatabase(database: string, includeData: boolean): Promise<string> {
+        const conn = await this.getConnection(database);
+        let sql = `-- MySQL Database Export: ${database}\n`;
+        sql += `-- Generated on: ${new Date().toISOString()}\n\n`;
+        sql += `USE \`${database}\`;\n\n`;
+
+        // Get all tables
+        const tables = await this.getTables(database);
+
+        if (tables.length === 0) {
+            sql += '-- No tables found in this database\n';
+            return sql;
+        }
+
+        for (let i = 0; i < tables.length; i++) {
+            sql += await this.exportTable(database, tables[i], includeData);
+            if (i < tables.length - 1) {
+                sql += '\n\n';
+            }
+        }
+
+        return sql;
+    }
+
+    async exportTable(database: string, tableName: string, includeData: boolean): Promise<string> {
+        const conn = await this.getConnection(database);
+        let sql = `-- Table: ${tableName}\n`;
+
+        // Get table structure
+        const columns = await this.getColumns(database, tableName);
+        const primaryKeys = await this.getPrimaryKeys(database, tableName);
+
+        // Create table statement
+        sql += `DROP TABLE IF EXISTS \`${tableName}\`;\n`;
+        sql += `CREATE TABLE \`${tableName}\` (\n`;
+
+        const columnDefs = columns.map((col: ColumnInfo) => {
+            let def = `  \`${col.column_name}\` ${col.data_type}`;
+            
+            if (col.character_maximum_length) {
+                def += `(${col.character_maximum_length})`;
+            } else if (col.numeric_precision && col.numeric_scale !== null) {
+                def += `(${col.numeric_precision}, ${col.numeric_scale})`;
+            }
+
+            if (col.is_nullable === 'NO') {
+                def += ' NOT NULL';
+            }
+
+            if (col.column_default !== null) {
+                def += ` DEFAULT ${col.column_default}`;
+            }
+
+            return def;
+        });
+
+        sql += columnDefs.join(',\n');
+
+        // Add primary key constraint
+        if (primaryKeys.length > 0) {
+            const pkColumns = primaryKeys.map(pk => `\`${pk}\``).join(', ');
+            sql += `,\n  PRIMARY KEY (${pkColumns})`;
+        }
+
+        sql += '\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n';
+
+        // Export data if requested
+        if (includeData) {
+            const [rows] = await conn.query<mysql.RowDataPacket[]>(`SELECT * FROM \`${tableName}\``);
+            
+            if (rows.length > 0) {
+                sql += `\n-- Data for table: ${tableName}\n`;
+                
+                for (const row of rows) {
+                    const columnNames = Object.keys(row).map(col => `\`${col}\``).join(', ');
+                    const values = Object.values(row).map(val => {
+                        if (val === null) return 'NULL';
+                        if (typeof val === 'number') return val;
+                        if (typeof val === 'boolean') return val ? '1' : '0';
+                        if (val instanceof Date) return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;
+                        if (val instanceof Buffer) return `0x${val.toString('hex')}`;
+                        if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "\\'")}'`;
+                        return `'${String(val).replace(/'/g, "\\'")}'`;
+                    }).join(', ');
+                    
+                    sql += `INSERT INTO \`${tableName}\` (${columnNames}) VALUES (${values});\n`;
+                }
+            }
+        }
+
+        return sql;
+    }
+
     async close(): Promise<void> {
         if (this.mysqlConnection) {
             try {

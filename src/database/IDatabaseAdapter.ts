@@ -51,6 +51,12 @@ export interface IDatabaseAdapter {
     // Execute a raw query
     query(database: string, query: string, params?: any[]): Promise<any>;
 
+    // Export database structure and data
+    exportDatabase(database: string, includeData: boolean): Promise<string>;
+
+    // Export table structure and data
+    exportTable(database: string, tableName: string, includeData: boolean): Promise<string>;
+
     // Close the connection
     close(): Promise<void>;
 }

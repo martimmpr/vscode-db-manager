@@ -229,7 +229,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                 await databaseExplorer.editConnection(item.connection, newConnection);
                 vscode.window.showInformationMessage(
-                    `✅ ${detectedType} connection "${name}" updated successfully!`
+                    `${detectedType} connection "${name}" updated successfully!`
                 );
             } catch (error: unknown) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -609,6 +609,50 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    let exportDatabase = vscode.commands.registerCommand('databaseExplorer.exportDatabase', async (item: any) => {
+        if (!item?.connection || !item?.database) return;
+
+        const includeDataChoice = await vscode.window.showQuickPick(
+            [
+                { label: 'Structure Only', value: false, description: 'Export only table structures (CREATE TABLE statements)' },
+                { label: 'Structure + Data', value: true, description: 'Export table structures and all data (CREATE + INSERT statements)' }
+            ],
+            {
+                placeHolder: `Export database "${item.database}"`
+            }
+        );
+
+        if (!includeDataChoice) return;
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Exporting database "${item.database}"...`,
+            cancellable: false
+        }, async (progress) => {
+            try {
+                progress.report({ message: 'Generating SQL export...' });
+                const sql = await databaseExplorer.exportDatabase(item.connection, item.database, includeDataChoice.value);
+                
+                progress.report({ message: 'Saving file...' });
+                
+                // Create a new untitled document with SQL content
+                const doc = await vscode.workspace.openTextDocument({
+                    content: sql,
+                    language: 'sql'
+                });
+                
+                await vscode.window.showTextDocument(doc);
+                
+                vscode.window.showInformationMessage(
+                    `Database "${item.database}" exported successfully!`
+                );
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+                vscode.window.showErrorMessage(`Failed to export database: ${errorMessage}`);
+            }
+        });
+    });
+
     context.subscriptions.push(
         addConnection, 
         refreshConnection, 
@@ -620,6 +664,7 @@ export function activate(context: vscode.ExtensionContext) {
         refreshDatabase,
         filterTables,
         editTable,
-        deleteTable
+        deleteTable,
+        exportDatabase
     );
 }
