@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { Client } from 'pg';
 import { DatabaseExplorer } from './databaseExplorer';
 import { TableViewer } from './tableViewer';
 import { Connection } from './types';
+import { DatabaseAdapterFactory, DatabaseDetector } from './database';
 
 export function activate(context: vscode.ExtensionContext) {
     const databaseExplorer = new DatabaseExplorer(context);
@@ -16,74 +16,89 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (!name) return;
 
-        const dbType = await vscode.window.showQuickPick(
-            ['PostgreSQL', 'MySQL', 'MariaDB'],
-            {
-                placeHolder: 'Select database type',
-                canPickMany: false
-            }
-        );
-
-        if (!dbType) return;
-
         const host = await vscode.window.showInputBox({
             prompt: 'Enter host',
             placeHolder: 'localhost',
             value: 'localhost'
         });
 
-        const defaultPort = dbType === 'PostgreSQL' ? '5432' : dbType === 'MySQL' || dbType === 'MariaDB' ? '3306' : '0';
+        if (!host) return;
 
         const port = await vscode.window.showInputBox({
             prompt: 'Enter port',
-            placeHolder: defaultPort,
-            value: defaultPort
+            placeHolder: '5432 (PostgreSQL) or 3306 (MySQL/MariaDB)',
+            value: '5432'
         });
+
+        if (!port) return;
 
         const username = await vscode.window.showInputBox({
             prompt: 'Enter username',
-            placeHolder: dbType === 'PostgreSQL' ? 'postgres' : 'root'
+            placeHolder: 'root'
         });
+
+        if (!username) return;
 
         const password = await vscode.window.showInputBox({
             prompt: 'Enter password',
             password: true
         });
 
-        if (!host || !port || !username || !password) {
-            vscode.window.showErrorMessage('All fields except database are required!');
+        if (!password) {
+            vscode.window.showErrorMessage('Password is required!');
             return;
         }
 
-        const connection: Connection = {
-            name,
-            type: dbType as 'PostgreSQL' | 'MySQL' | 'MariaDB',
-            host,
-            port: parseInt(port),
-            username: username.trim(),
-            password
-        };
+        // Show progress while detecting database type
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Connecting to ${name}...`,
+            cancellable: false
+        }, async (progress) => {
+            try {
+                progress.report({ message: 'Detecting database type...' });
+                
+                // Attempt to detect database type
+                const detectedType = await DatabaseDetector.detectDatabaseType(
+                    host,
+                    parseInt(port),
+                    username.trim(),
+                    password
+                );
 
-        try {
-            const clientConfig = {
-                host: host,
-                port: parseInt(port),
-                user: username.trim(),
-                password: password,
-                database: 'postgres'
-            };
+                if (!detectedType) {
+                    vscode.window.showErrorMessage(
+                        'Could not detect database type or failed to connect. Please check your credentials and try again.'
+                    );
+                    return;
+                }
 
-            const client = new Client(clientConfig);
-            await client.connect();
-            await client.end();
+                progress.report({ message: `Detected ${detectedType} database` });
 
-            await databaseExplorer.addConnection(connection);
-            vscode.window.showInformationMessage('Connection added successfully!');
-        } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            console.error('Connection error:', errorMessage);
-            vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
-        }
+                const connection: Connection = {
+                    name,
+                    type: detectedType,
+                    host,
+                    port: parseInt(port),
+                    username: username.trim(),
+                    password
+                };
+
+                // Test connection one more time with the detected type
+                const adapter = DatabaseAdapterFactory.createAdapter(connection);
+                await adapter.testConnection();
+                await adapter.close();
+
+                await databaseExplorer.addConnection(connection);
+                vscode.window.showInformationMessage(
+                    `${detectedType} connection "${name}" added successfully!`
+                );
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+                console.error('Connection error:', errorMessage);
+                vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
+            }
+        });
     });
 
     let refreshConnection = vscode.commands.registerCommand('databaseExplorer.refreshConnection', async (item: any) => {
@@ -102,30 +117,16 @@ export function activate(context: vscode.ExtensionContext) {
         if (!item?.connection) return;
 
         try {
-            const clientConfig = {
-                host: item.connection.host,
-                port: item.connection.port,
-                user: item.connection.username,
-                password: item.connection.password,
-                database: 'postgres'
-            };
-
-            const client = new Client(clientConfig);
-            await client.connect();
-
-            const res = await client.query(
-                "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
-            );
-            await client.end();
-
-            const databases = res.rows.map(row => row.datname);
+            const adapter = DatabaseAdapterFactory.createAdapter(item.connection);
+            const databases = await adapter.getDatabases();
+            await adapter.close();
             
             const quickPick = vscode.window.createQuickPick();
             quickPick.canSelectMany = true;
             quickPick.title = 'Select Databases to Show';
             quickPick.placeholder = 'Leave empty to show all databases';
             
-            quickPick.items = databases.map(db => ({
+            quickPick.items = databases.map((db: string) => ({
                 label: db,
                 picked: item.connection.selectedDatabases ? 
                     item.connection.selectedDatabases.includes(db) : false
@@ -154,30 +155,26 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (!name) return;
 
-        const dbType = await vscode.window.showQuickPick(
-            ['PostgreSQL', 'MySQL', 'MariaDB'],
-            {
-                placeHolder: 'Select database type',
-                canPickMany: false
-            }
-        );
-
-        if (!dbType) return;
-
         const host = await vscode.window.showInputBox({
             prompt: 'Enter host',
             value: item.connection.host
         });
+
+        if (!host) return;
 
         const port = await vscode.window.showInputBox({
             prompt: 'Enter port',
             value: item.connection.port.toString()
         });
 
+        if (!port) return;
+
         const username = await vscode.window.showInputBox({
             prompt: 'Enter username',
             value: item.connection.username
         });
+
+        if (!username) return;
 
         const password = await vscode.window.showInputBox({
             prompt: 'Enter password',
@@ -185,39 +182,60 @@ export function activate(context: vscode.ExtensionContext) {
             value: item.connection.password
         });
 
-        if (!name || !host || !port || !username || !password) {
-            vscode.window.showErrorMessage('All fields except database are required!');
+        if (!password) {
+            vscode.window.showErrorMessage('Password is required!');
             return;
         }
 
-        const newConnection: Connection = {
-            name,
-            type: dbType as 'PostgreSQL' | 'MySQL' | 'MariaDB',
-            host,
-            port: parseInt(port),
-            username: username.trim(),
-            password
-        };
+        // Show progress while detecting database type
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Updating connection ${name}...`,
+            cancellable: false
+        }, async (progress) => {
+            try {
+                progress.report({ message: 'Detecting database type...' });
+                
+                // Attempt to detect database type
+                const detectedType = await DatabaseDetector.detectDatabaseType(
+                    host,
+                    parseInt(port),
+                    username.trim(),
+                    password
+                );
 
-        try {
-            const clientConfig = {
-                host: host,
-                port: parseInt(port),
-                user: username.trim(),
-                password: password,
-                database: 'postgres'
-            };
+                if (!detectedType) {
+                    vscode.window.showErrorMessage(
+                        'Could not detect database type or failed to connect. Please check your credentials and try again.'
+                    );
+                    return;
+                }
 
-            const client = new Client(clientConfig);
-            await client.connect();
-            await client.end();
+                progress.report({ message: `Detected ${detectedType} database` });
 
-            await databaseExplorer.editConnection(item.connection, newConnection);
-            vscode.window.showInformationMessage('Connection updated successfully!');
-        } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            vscode.window.showErrorMessage(`Failed to update connection: ${errorMessage}`);
-        }
+                const newConnection: Connection = {
+                    name,
+                    type: detectedType,
+                    host,
+                    port: parseInt(port),
+                    username: username.trim(),
+                    password
+                };
+
+                // Test connection
+                const adapter = DatabaseAdapterFactory.createAdapter(newConnection);
+                await adapter.testConnection();
+                await adapter.close();
+
+                await databaseExplorer.editConnection(item.connection, newConnection);
+                vscode.window.showInformationMessage(
+                    `✅ ${detectedType} connection "${name}" updated successfully!`
+                );
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+                vscode.window.showErrorMessage(`Failed to update connection: ${errorMessage}`);
+            }
+        });
     });
 
     let removeConnection = vscode.commands.registerCommand('databaseExplorer.removeConnection', async (item: any) => {
@@ -359,30 +377,16 @@ export function activate(context: vscode.ExtensionContext) {
         if (!item?.connection || !item?.database) return;
 
         try {
-            const clientConfig = {
-                host: item.connection.host,
-                port: item.connection.port,
-                user: item.connection.username,
-                password: item.connection.password,
-                database: item.database
-            };
-
-            const client = new Client(clientConfig);
-            await client.connect();
-
-            const res = await client.query(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
-            );
-            await client.end();
-
-            const tables = res.rows.map(row => row.table_name);
+            const adapter = DatabaseAdapterFactory.createAdapter(item.connection);
+            const tables = await adapter.getTables(item.database);
+            await adapter.close();
             
             const quickPick = vscode.window.createQuickPick();
             quickPick.canSelectMany = true;
             quickPick.title = 'Select Tables to Show';
             quickPick.placeholder = 'Leave empty to show all tables';
             
-            quickPick.items = tables.map(table => ({
+            quickPick.items = tables.map((table: string) => ({
                 label: table,
                 picked: item.connection.selectedTables && 
                         item.connection.selectedTables[item.database] ? 
@@ -405,12 +409,19 @@ export function activate(context: vscode.ExtensionContext) {
     let editTable = vscode.commands.registerCommand('databaseExplorer.editTable', async (item: any) => {
         if (!item?.connection || !item?.database || !item?.table) return;
 
-        const action = await vscode.window.showQuickPick([
+        // Build options based on database type
+        const options = [
             { label: 'Rename Table', value: 'rename' },
             { label: 'Add Column', value: 'add' },
-            { label: 'Remove Column', value: 'remove' },
-            { label: 'Reorder Columns', value: 'reorder' }
-        ], {
+            { label: 'Remove Column', value: 'remove' }
+        ];
+
+        // Only add "Reorder Columns" option for PostgreSQL
+        if (item.connection.type === 'PostgreSQL') {
+            options.push({ label: 'Reorder Columns', value: 'reorder' });
+        }
+
+        const action = await vscode.window.showQuickPick(options, {
             placeHolder: `Edit table "${item.table}"`
         });
 
@@ -441,32 +452,16 @@ export function activate(context: vscode.ExtensionContext) {
         } else if (action.value === 'reorder') {
             // Reorder columns
             try {
-                const clientConfig = {
-                    host: item.connection.host,
-                    port: item.connection.port,
-                    user: item.connection.username,
-                    password: item.connection.password,
-                    database: item.database
-                };
+                const adapter = DatabaseAdapterFactory.createAdapter(item.connection);
+                const columnInfos = await adapter.getColumns(item.database, item.table);
+                await adapter.close();
 
-                const client = new Client(clientConfig);
-                await client.connect();
-
-                const res = await client.query(
-                    `SELECT column_name, data_type, is_nullable 
-                    FROM information_schema.columns 
-                    WHERE table_name = $1 AND table_schema = 'public' 
-                    ORDER BY ordinal_position`,
-                    [item.table]
-                );
-                await client.end();
-
-                if (res.rows.length < 2) {
+                if (columnInfos.length < 2) {
                     vscode.window.showInformationMessage('Table must have at least 2 columns to reorder.');
                     return;
                 }
 
-                const columns = res.rows.map(row => ({
+                const columns = columnInfos.map(row => ({
                     label: row.column_name,
                     description: `${row.data_type} ${row.is_nullable === 'NO' ? '(NOT NULL)' : ''}`
                 }));
@@ -557,27 +552,11 @@ export function activate(context: vscode.ExtensionContext) {
         } else if (action.value === 'remove') {
             // Remove column - first get list of columns
             try {
-                const clientConfig = {
-                    host: item.connection.host,
-                    port: item.connection.port,
-                    user: item.connection.username,
-                    password: item.connection.password,
-                    database: item.database
-                };
+                const adapter = DatabaseAdapterFactory.createAdapter(item.connection);
+                const columnInfos = await adapter.getColumns(item.database, item.table);
+                await adapter.close();
 
-                const client = new Client(clientConfig);
-                await client.connect();
-
-                const res = await client.query(
-                    `SELECT column_name, data_type, is_nullable 
-                    FROM information_schema.columns 
-                    WHERE table_name = $1 AND table_schema = 'public' 
-                    ORDER BY ordinal_position`,
-                    [item.table]
-                );
-                await client.end();
-
-                const columns = res.rows.map(row => ({
+                const columns = columnInfos.map(row => ({
                     label: row.column_name,
                     description: `${row.data_type} ${row.is_nullable === 'NO' ? '(NOT NULL)' : ''}`
                 }));

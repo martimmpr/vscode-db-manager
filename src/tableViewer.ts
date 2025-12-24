@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
-import { Client } from 'pg';
 import { Connection } from './types';
+import { DatabaseAdapterFactory, IDatabaseAdapter } from './database';
 
 export class TableViewer {
     private static currentPanel: vscode.WebviewPanel | undefined;
-    private client: Client | undefined;
+    private adapter: IDatabaseAdapter | undefined;
+    private currentConnection: Connection | undefined;
+    private currentDatabase: string | undefined;
 
     constructor(
         private context: vscode.ExtensionContext
@@ -35,27 +37,22 @@ export class TableViewer {
 
             TableViewer.currentPanel.onDidDispose(() => {
                 TableViewer.currentPanel = undefined;
-                if (this.client) {
-                    this.client.end();
+                if (this.adapter) {
+                    this.adapter.close();
                 }
             });
         }
 
         // Setup database connection
         try {
-            if (this.client) {
-                await this.client.end();
+            if (this.adapter) {
+                await this.adapter.close();
             }
 
-            this.client = new Client({
-                host: connection.host,
-                port: connection.port,
-                user: connection.username,
-                password: connection.password,
-                database: database
-            });
-
-            await this.client.connect();
+            this.currentConnection = connection;
+            this.currentDatabase = database;
+            this.adapter = DatabaseAdapterFactory.createAdapter(connection);
+            await this.adapter.testConnection();
 
             // Load and display data
             await this.loadTableData(tableName);
@@ -159,89 +156,114 @@ export class TableViewer {
         sortColumn?: string,
         sortDirection?: string
     ) {
-        if (!this.client || !TableViewer.currentPanel) return;
+        if (!this.adapter || !this.currentDatabase || !this.currentConnection || !TableViewer.currentPanel) return;
 
         try {
-            // Get table structure
-            const columnsResult = await this.client.query(`
-                SELECT column_name, data_type, is_nullable, column_default
-                FROM information_schema.columns
-                WHERE table_name = $1 AND table_schema = 'public'
-                ORDER BY ordinal_position
-            `, [tableName]);
+            // Get table structure using adapter
+            const columnsResult = await this.adapter.getColumns(this.currentDatabase, tableName);
+            
+            // Get primary keys
+            const primaryKeys = await this.adapter.getPrimaryKeys(this.currentDatabase, tableName);
+            
+            // Get unique keys
+            const uniqueKeys = await this.adapter.getUniqueKeys(this.currentDatabase, tableName);
 
-            // Get primary key
-            const pkResult = await this.client.query(`
-                SELECT a.attname
-                FROM pg_index i
-                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                WHERE i.indrelid = $1::regclass AND i.indisprimary
-            `, [tableName]);
+            // Get identity/auto-increment columns (database-specific)
+            let identityColumns: string[] = [];
+            if (this.currentConnection.type === 'PostgreSQL') {
+                const identityResult = await this.adapter.query(this.currentDatabase, `
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = $1 
+                    AND table_schema = 'public'
+                    AND (is_identity = 'YES' OR column_default LIKE 'nextval%')
+                `, [tableName]);
+                identityColumns = identityResult.rows.map((row: any) => row.column_name);
+            } else {
+                // MySQL/MariaDB
+                const identityResult = await this.adapter.query(this.currentDatabase, `
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = ? 
+                    AND table_schema = ?
+                    AND extra LIKE '%auto_increment%'
+                `, [tableName, this.currentDatabase]);
+                identityColumns = identityResult.map((row: any) => row.column_name);
+            }
 
-            const primaryKeys = pkResult.rows.map(row => row.attname);
-
-            // Get unique constraints
-            const uniqueResult = await this.client.query(`
-                SELECT a.attname
-                FROM pg_index i
-                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                WHERE i.indrelid = $1::regclass AND i.indisunique AND NOT i.indisprimary
-            `, [tableName]);
-
-            const uniqueKeys = uniqueResult.rows.map(row => row.attname);
-
-            // Get identity/auto-increment columns
-            const identityResult = await this.client.query(`
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = $1 
-                AND table_schema = 'public'
-                AND (is_identity = 'YES' OR column_default LIKE 'nextval%')
-            `, [tableName]);
-
-            const identityColumns = identityResult.rows.map(row => row.column_name);
-
-            // Build query
-            let query = `SELECT * FROM ${tableName}`;
+            // Build query (database-specific)
+            const isPostgres = this.currentConnection.type === 'PostgreSQL';
+            const tableIdentifier = isPostgres ? tableName : `\`${tableName}\``;
+            let query = `SELECT * FROM ${tableIdentifier}`;
             const params: any[] = [];
             let paramIndex = 1;
 
             if (search) {
-                const searchConditions = columnsResult.rows
-                    .map(col => `${col.column_name}::text ILIKE $${paramIndex}`)
-                    .join(' OR ');
-                query += ` WHERE ${searchConditions}`;
-                params.push(`%${search}%`);
-                paramIndex++;
+                if (isPostgres) {
+                    const searchConditions = columnsResult
+                        .map((col: any) => `${col.column_name}::text ILIKE $${paramIndex}`)
+                        .join(' OR ');
+                    query += ` WHERE ${searchConditions}`;
+                    params.push(`%${search}%`);
+                    paramIndex++;
+                } else {
+                    // MySQL/MariaDB
+                    const searchConditions = columnsResult
+                        .map((col: any, idx: number) => `\`${col.column_name}\` LIKE ?`)
+                        .join(' OR ');
+                    query += ` WHERE ${searchConditions}`;
+                    // Add search param for each column
+                    columnsResult.forEach(() => params.push(`%${search}%`));
+                }
             }
 
             // Get total count
-            const countQuery = search 
-                ? `SELECT COUNT(*) FROM ${tableName} WHERE ${columnsResult.rows
-                    .map(col => `${col.column_name}::text ILIKE $1`)
-                    .join(' OR ')}`
-                : `SELECT COUNT(*) FROM ${tableName}`;
+            let countQuery: string;
+            let countParams: any[] = [];
             
-            const countResult = await this.client.query(
-                countQuery, 
-                search ? [`%${search}%`] : []
-            );
-            const totalRows = parseInt(countResult.rows[0].count);
+            if (search) {
+                if (isPostgres) {
+                    countQuery = `SELECT COUNT(*) FROM ${tableIdentifier} WHERE ${columnsResult
+                        .map((col: any) => `${col.column_name}::text ILIKE $1`)
+                        .join(' OR ')}`;
+                    countParams = [`%${search}%`];
+                } else {
+                    countQuery = `SELECT COUNT(*) FROM ${tableIdentifier} WHERE ${columnsResult
+                        .map((col: any) => `\`${col.column_name}\` LIKE ?`)
+                        .join(' OR ')}`;
+                    columnsResult.forEach(() => countParams.push(`%${search}%`));
+                }
+            } else {
+                countQuery = `SELECT COUNT(*) FROM ${tableIdentifier}`;
+            }
+            
+            const countResult = await this.adapter.query(this.currentDatabase, countQuery, countParams);
+            const totalRows = isPostgres 
+                ? parseInt(countResult.rows[0].count) 
+                : parseInt(countResult[0]['COUNT(*)']);
 
             // Add ORDER BY clause if sort is specified
             if (sortColumn && sortDirection) {
-                query += ` ORDER BY ${sortColumn} ${sortDirection.toUpperCase()}`;
+                const columnIdentifier = isPostgres ? sortColumn : `\`${sortColumn}\``;
+                query += ` ORDER BY ${columnIdentifier} ${sortDirection.toUpperCase()}`;
             }
 
-            query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-            params.push(limit, offset);
+            // Add LIMIT and OFFSET
+            if (isPostgres) {
+                query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+                params.push(limit, offset);
+            } else {
+                query += ` LIMIT ? OFFSET ?`;
+                params.push(limit, offset);
+            }
 
-            const dataResult = await this.client.query(query, params);
+            const dataResult = await this.adapter.query(this.currentDatabase, query, params);
+            const rows = isPostgres ? dataResult.rows : dataResult;
 
             TableViewer.currentPanel.webview.html = this.getWebviewContent(
                 tableName,
-                columnsResult.rows,
-                dataResult.rows,
+                columnsResult,
+                rows,
                 primaryKeys,
                 uniqueKeys,
                 identityColumns,
@@ -260,30 +282,38 @@ export class TableViewer {
     }
 
     private async deleteRow(tableName: string, row: any, skipReload: boolean = false) {
-        if (!this.client) return;
+        if (!this.adapter || !this.currentDatabase || !this.currentConnection) return false;
 
         try {
             // Get primary key columns
-            const pkResult = await this.client.query(`
-                SELECT a.attname
-                FROM pg_index i
-                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                WHERE i.indrelid = $1::regclass AND i.indisprimary
-            `, [tableName]);
+            const primaryKeys = await this.adapter.getPrimaryKeys(this.currentDatabase, tableName);
 
-            if (pkResult.rows.length === 0) {
+            if (primaryKeys.length === 0) {
                 vscode.window.showErrorMessage('Cannot delete: table has no primary key');
                 return false;
             }
 
-            const whereConditions = pkResult.rows
-                .map((pk, idx) => `${pk.attname} = $${idx + 1}`)
-                .join(' AND ');
+            const isPostgres = this.currentConnection.type === 'PostgreSQL';
+            const tableIdentifier = isPostgres ? tableName : `\`${tableName}\``;
+            
+            let whereConditions: string;
+            let values: any[];
+            
+            if (isPostgres) {
+                whereConditions = primaryKeys
+                    .map((pk: string, idx: number) => `${pk} = $${idx + 1}`)
+                    .join(' AND ');
+                values = primaryKeys.map((pk: string) => row[pk]);
+            } else {
+                whereConditions = primaryKeys
+                    .map((pk: string) => `\`${pk}\` = ?`)
+                    .join(' AND ');
+                values = primaryKeys.map((pk: string) => row[pk]);
+            }
 
-            const values = pkResult.rows.map(pk => row[pk.attname]);
-
-            await this.client.query(
-                `DELETE FROM ${tableName} WHERE ${whereConditions}`,
+            await this.adapter.query(
+                this.currentDatabase,
+                `DELETE FROM ${tableIdentifier} WHERE ${whereConditions}`,
                 values
             );
 
@@ -302,37 +332,55 @@ export class TableViewer {
     }
 
     private async updateRow(tableName: string, originalRow: any, changes: any) {
-        if (!this.client) return;
+        if (!this.adapter || !this.currentDatabase || !this.currentConnection) return;
 
         try {
             // Get primary key columns
-            const pkResult = await this.client.query(`
-                SELECT a.attname
-                FROM pg_index i
-                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                WHERE i.indrelid = $1::regclass AND i.indisprimary
-            `, [tableName]);
+            const primaryKeys = await this.adapter.getPrimaryKeys(this.currentDatabase, tableName);
 
-            if (pkResult.rows.length === 0) {
+            if (primaryKeys.length === 0) {
                 vscode.window.showErrorMessage('Cannot update: table has no primary key');
                 return;
             }
 
-            const setClause = Object.keys(changes)
-                .map((key, idx) => `${key} = $${idx + 1}`)
-                .join(', ');
+            const isPostgres = this.currentConnection.type === 'PostgreSQL';
+            const tableIdentifier = isPostgres ? tableName : `\`${tableName}\``;
+            
+            let setClause: string;
+            let whereConditions: string;
+            let values: any[];
+            
+            if (isPostgres) {
+                setClause = Object.keys(changes)
+                    .map((key, idx) => `${key} = $${idx + 1}`)
+                    .join(', ');
 
-            const whereConditions = pkResult.rows
-                .map((pk, idx) => `${pk.attname} = $${Object.keys(changes).length + idx + 1}`)
-                .join(' AND ');
+                whereConditions = primaryKeys
+                    .map((pk: string, idx: number) => `${pk} = $${Object.keys(changes).length + idx + 1}`)
+                    .join(' AND ');
 
-            const values = [
-                ...Object.values(changes),
-                ...pkResult.rows.map(pk => originalRow[pk.attname])
-            ];
+                values = [
+                    ...Object.values(changes),
+                    ...primaryKeys.map((pk: string) => originalRow[pk])
+                ];
+            } else {
+                setClause = Object.keys(changes)
+                    .map((key) => `\`${key}\` = ?`)
+                    .join(', ');
 
-            await this.client.query(
-                `UPDATE ${tableName} SET ${setClause} WHERE ${whereConditions}`,
+                whereConditions = primaryKeys
+                    .map((pk: string) => `\`${pk}\` = ?`)
+                    .join(' AND ');
+
+                values = [
+                    ...Object.values(changes),
+                    ...primaryKeys.map((pk: string) => originalRow[pk])
+                ];
+            }
+
+            await this.adapter.query(
+                this.currentDatabase,
+                `UPDATE ${tableIdentifier} SET ${setClause} WHERE ${whereConditions}`,
                 values
             );
 
@@ -346,15 +394,29 @@ export class TableViewer {
     }
 
     private async insertRow(tableName: string, row: any) {
-        if (!this.client) return;
+        if (!this.adapter || !this.currentDatabase || !this.currentConnection) return;
 
         try {
             const columns = Object.keys(row).filter(key => row[key] !== null && row[key] !== '');
-            const placeholders = columns.map((_, idx) => `$${idx + 1}`).join(', ');
             const values = columns.map(col => row[col]);
 
-            await this.client.query(
-                `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`,
+            const isPostgres = this.currentConnection.type === 'PostgreSQL';
+            const tableIdentifier = isPostgres ? tableName : `\`${tableName}\``;
+            
+            let columnsClause: string;
+            let placeholders: string;
+            
+            if (isPostgres) {
+                columnsClause = columns.join(', ');
+                placeholders = columns.map((_, idx) => `$${idx + 1}`).join(', ');
+            } else {
+                columnsClause = columns.map(col => `\`${col}\``).join(', ');
+                placeholders = columns.map(() => '?').join(', ');
+            }
+
+            await this.adapter.query(
+                this.currentDatabase,
+                `INSERT INTO ${tableIdentifier} (${columnsClause}) VALUES (${placeholders})`,
                 values
             );
 

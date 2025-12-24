@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { Client } from 'pg';
 import { Connection, DatabaseItem } from './types';
+import { DatabaseAdapterFactory, ColumnDefinition } from './database';
 
 export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<DatabaseItem | undefined | null | void> = new vscode.EventEmitter<DatabaseItem | undefined | null | void>();
@@ -90,55 +90,30 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         }
     }
 
-    async createTable(connection: Connection, database: string, tableName: string, columns: Array<{name: string, type: string, constraints: string[]}>) {
-        const clientConfig = {
-            user: connection.username,
-            host: connection.host,
-            database: database,
-            password: connection.password,
-            port: connection.port
-        };
-
-        const client = new Client(clientConfig);
+    async createTable(connection: Connection, database: string, tableName: string, columns: ColumnDefinition[]) {
+        const adapter = DatabaseAdapterFactory.createAdapter(connection);
         
         try {
-            await client.connect();
-            
-            const columnDefs = columns.map(col => {
-                const constraints = col.constraints.join(' ');
-                return `"${col.name}" ${col.type} ${constraints}`.trim();
-            }).join(', ');
-            
-            const query = `CREATE TABLE "${tableName}" (${columnDefs})`;
-            await client.query(query);
-            await client.end();
+            await adapter.createTable(database, tableName, columns);
+            await adapter.close();
             
             this._onDidChangeTreeData.fire();
         } catch (error) {
-            await client.end();
+            await adapter.close();
             throw error;
         }
     }
 
     async deleteTable(connection: Connection, database: string, tableName: string) {
-        const clientConfig = {
-            user: connection.username,
-            host: connection.host,
-            database: database,
-            password: connection.password,
-            port: connection.port
-        };
-
-        const client = new Client(clientConfig);
+        const adapter = DatabaseAdapterFactory.createAdapter(connection);
         
         try {
-            await client.connect();
-            await client.query(`DROP TABLE "${tableName}"`);
-            await client.end();
+            await adapter.deleteTable(database, tableName);
+            await adapter.close();
             
             this._onDidChangeTreeData.fire();
         } catch (error) {
-            await client.end();
+            await adapter.close();
             throw error;
         }
     }
@@ -178,39 +153,10 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         }
 
         if (element.type === 'connection') {
-            const clientConfig = {
-                user: element.connection.username,
-                host: element.connection.host,
-                database: 'postgres',
-                password: element.connection.password,
-                port: element.connection.port
-            };
-
             try {
-                const client = new Client(clientConfig);
-                await client.connect();
-
-                const res = await client.query(
-                    "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
-                );
-                await client.end();
-
-                if (res.rows.length === 0) {
-                    return [new DatabaseItem(
-                        'No databases found!',
-                        vscode.TreeItemCollapsibleState.None,
-                        'empty',
-                        element.connection
-                    )];
-                }
-
-                let databases = res.rows.map(row => row.datname);
-                
-                if (element.connection.selectedDatabases && element.connection.selectedDatabases.length > 0) {
-                    databases = databases.filter(db => 
-                        element.connection!.selectedDatabases?.includes(db)
-                    );
-                }
+                const adapter = DatabaseAdapterFactory.createAdapter(element.connection);
+                const databases = await adapter.getDatabases();
+                await adapter.close();
 
                 if (databases.length === 0) {
                     return [new DatabaseItem(
@@ -221,7 +167,24 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
                     )];
                 }
 
-                return databases.map(dbName => new DatabaseItem(
+                let filteredDatabases = databases;
+                
+                if (element.connection.selectedDatabases && element.connection.selectedDatabases.length > 0) {
+                    filteredDatabases = databases.filter((db: string) => 
+                        element.connection!.selectedDatabases?.includes(db)
+                    );
+                }
+
+                if (filteredDatabases.length === 0) {
+                    return [new DatabaseItem(
+                        'No databases found!',
+                        vscode.TreeItemCollapsibleState.None,
+                        'empty',
+                        element.connection
+                    )];
+                }
+
+                return filteredDatabases.map((dbName: string) => new DatabaseItem(
                     dbName,
                     vscode.TreeItemCollapsibleState.Collapsed,
                     'database',
@@ -237,42 +200,10 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         }
 
         if (element.type === 'database' && element.database) {
-            const clientConfig = {
-                user: element.connection.username,
-                host: element.connection.host,
-                database: element.database,
-                password: element.connection.password,
-                port: element.connection.port
-            };
-    
-            const client = new Client(clientConfig);
-    
             try {
-                await client.connect();
-                const res = await client.query(
-                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
-                );
-                await client.end();
-
-                if (res.rows.length === 0) {
-                    return [new DatabaseItem(
-                        'No tables found!',
-                        vscode.TreeItemCollapsibleState.None,
-                        'empty',
-                        element.connection,
-                        element.database
-                    )];
-                }
-
-                let tables = res.rows.map(row => row.table_name);
-                
-                if (element.connection.selectedTables && 
-                    element.connection.selectedTables[element.database] && 
-                    element.connection.selectedTables[element.database].length > 0) {
-                    tables = tables.filter(table => 
-                        element.connection!.selectedTables![element.database!]?.includes(table)
-                    );
-                }
+                const adapter = DatabaseAdapterFactory.createAdapter(element.connection);
+                const tables = await adapter.getTables(element.database);
+                await adapter.close();
 
                 if (tables.length === 0) {
                     return [new DatabaseItem(
@@ -283,8 +214,28 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
                         element.database
                     )];
                 }
+
+                let filteredTables = tables;
+                
+                if (element.connection.selectedTables && 
+                    element.connection.selectedTables[element.database] && 
+                    element.connection.selectedTables[element.database].length > 0) {
+                    filteredTables = tables.filter((table: string) => 
+                        element.connection!.selectedTables![element.database!]?.includes(table)
+                    );
+                }
+
+                if (filteredTables.length === 0) {
+                    return [new DatabaseItem(
+                        'No tables found!',
+                        vscode.TreeItemCollapsibleState.None,
+                        'empty',
+                        element.connection,
+                        element.database
+                    )];
+                }
     
-                return tables.map(tableName => new DatabaseItem(
+                return filteredTables.map((tableName: string) => new DatabaseItem(
                     tableName,
                     vscode.TreeItemCollapsibleState.None,
                     'table',
@@ -309,24 +260,15 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         oldTableName: string,
         newTableName: string
     ) {
-        const clientConfig = {
-            user: connection.username,
-            host: connection.host,
-            database: database,
-            password: connection.password,
-            port: connection.port
-        };
-
-        const client = new Client(clientConfig);
+        const adapter = DatabaseAdapterFactory.createAdapter(connection);
         
         try {
-            await client.connect();
-            await client.query(`ALTER TABLE "${oldTableName}" RENAME TO "${newTableName}"`);
-            await client.end();
+            await adapter.renameTable(database, oldTableName, newTableName);
+            await adapter.close();
             
             this._onDidChangeTreeData.fire();
         } catch (error) {
-            await client.end();
+            await adapter.close();
             throw error;
         }
     }
@@ -338,24 +280,20 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         columnName: string,
         afterColumn?: string
     ) {
-        const clientConfig = {
-            user: connection.username,
-            host: connection.host,
-            database: database,
-            password: connection.password,
-            port: connection.port
-        };
+        // NOTE: This method currently only works for PostgreSQL
+        // MySQL/MariaDB have different syntax for column reordering
+        if (connection.type !== 'PostgreSQL') {
+            throw new Error('Column reordering is currently only supported for PostgreSQL');
+        }
 
-        const client = new Client(clientConfig);
+        const adapter = DatabaseAdapterFactory.createAdapter(connection);
         
         try {
-            await client.connect();
-            
             // PostgreSQL doesn't support direct column reordering
             // We need to recreate the table with the new column order
             
             // Get all columns with their full definition
-            const columnsResult = await client.query(`
+            const columnsResult = await adapter.query(database, `
                 SELECT 
                     column_name,
                     data_type,
@@ -370,28 +308,28 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
             `, [tableName]);
 
             // Get primary key
-            const pkResult = await client.query(`
+            const pkResult = await adapter.query(database, `
                 SELECT a.attname
                 FROM pg_index i
                 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
                 WHERE i.indrelid = $1::regclass AND i.indisprimary
             `, [tableName]);
 
-            const primaryKeys = pkResult.rows.map(row => row.attname);
+            const primaryKeys = pkResult.rows.map((row: any) => row.attname);
 
             // Get unique constraints
-            const uniqueResult = await client.query(`
+            const uniqueResult = await adapter.query(database, `
                 SELECT a.attname
                 FROM pg_index i
                 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
                 WHERE i.indrelid = $1::regclass AND i.indisunique AND NOT i.indisprimary
             `, [tableName]);
 
-            const uniqueKeys = uniqueResult.rows.map(row => row.attname);
+            const uniqueKeys = uniqueResult.rows.map((row: any) => row.attname);
 
             // Reorder columns array
             const columns = columnsResult.rows;
-            const columnToMoveIndex = columns.findIndex(c => c.column_name === columnName);
+            const columnToMoveIndex = columns.findIndex((c: any) => c.column_name === columnName);
             const columnToMove = columns[columnToMoveIndex];
             
             // Remove from current position
@@ -399,7 +337,7 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
             
             // Insert at new position
             if (afterColumn) {
-                const afterIndex = columns.findIndex(c => c.column_name === afterColumn);
+                const afterIndex = columns.findIndex((c: any) => c.column_name === afterColumn);
                 columns.splice(afterIndex + 1, 0, columnToMove);
             } else {
                 // Move to first
@@ -407,7 +345,7 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
             }
 
             // Create column definitions
-            const columnDefs = columns.map(col => {
+            const columnDefs = columns.map((col: any) => {
                 let def = `"${col.column_name}" ${col.data_type}`;
                 
                 if (col.character_maximum_length) {
@@ -436,32 +374,36 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
             }).join(', ');
 
             const tempTableName = `${tableName}_temp_${Date.now()}`;
-            const columnNames = columns.map(c => `"${c.column_name}"`).join(', ');
+            const columnNames = columns.map((c: any) => `"${c.column_name}"`).join(', ');
 
             // Begin transaction
-            await client.query('BEGIN');
+            await adapter.query(database, 'BEGIN');
             
             // Create new table with reordered columns
-            await client.query(`CREATE TABLE "${tempTableName}" (${columnDefs})`);
+            await adapter.query(database, `CREATE TABLE "${tempTableName}" (${columnDefs})`);
             
             // Copy data
-            await client.query(`INSERT INTO "${tempTableName}" (${columnNames}) SELECT ${columnNames} FROM "${tableName}"`);
+            await adapter.query(database, `INSERT INTO "${tempTableName}" (${columnNames}) SELECT ${columnNames} FROM "${tableName}"`);
             
             // Drop old table
-            await client.query(`DROP TABLE "${tableName}"`);
+            await adapter.query(database, `DROP TABLE "${tableName}"`);
             
             // Rename temp table to original name
-            await client.query(`ALTER TABLE "${tempTableName}" RENAME TO "${tableName}"`);
+            await adapter.query(database, `ALTER TABLE "${tempTableName}" RENAME TO "${tableName}"`);
             
             // Commit transaction
-            await client.query('COMMIT');
+            await adapter.query(database, 'COMMIT');
             
-            await client.end();
+            await adapter.close();
             
             this._onDidChangeTreeData.fire();
         } catch (error) {
-            await client.query('ROLLBACK');
-            await client.end();
+            try {
+                await adapter.query(database, 'ROLLBACK');
+            } catch (rollbackError) {
+                // Ignore rollback errors
+            }
+            await adapter.close();
             throw error;
         }
     }
@@ -474,36 +416,15 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         columnType: string,
         constraints: string[]
     ) {
-        const clientConfig = {
-            user: connection.username,
-            host: connection.host,
-            database: database,
-            password: connection.password,
-            port: connection.port
-        };
-
-        const client = new Client(clientConfig);
+        const adapter = DatabaseAdapterFactory.createAdapter(connection);
         
         try {
-            await client.connect();
-            
-            let alterQuery = `ALTER TABLE "${tableName}" ADD COLUMN "${columnName}" ${columnType}`;
-            
-            // Add constraints
-            if (constraints.includes('NOT NULL')) {
-                alterQuery += ' NOT NULL';
-            }
-            
-            if (constraints.includes('UNIQUE')) {
-                alterQuery += ' UNIQUE';
-            }
-            
-            await client.query(alterQuery);
-            await client.end();
+            await adapter.addColumn(database, tableName, columnName, columnType, constraints);
+            await adapter.close();
             
             this._onDidChangeTreeData.fire();
         } catch (error) {
-            await client.end();
+            await adapter.close();
             throw error;
         }
     }
@@ -514,26 +435,15 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         tableName: string, 
         columnName: string
     ) {
-        const clientConfig = {
-            user: connection.username,
-            host: connection.host,
-            database: database,
-            password: connection.password,
-            port: connection.port
-        };
-
-        const client = new Client(clientConfig);
+        const adapter = DatabaseAdapterFactory.createAdapter(connection);
         
         try {
-            await client.connect();
-            
-            const alterQuery = `ALTER TABLE "${tableName}" DROP COLUMN "${columnName}"`;
-            await client.query(alterQuery);
-            await client.end();
+            await adapter.removeColumn(database, tableName, columnName);
+            await adapter.close();
             
             this._onDidChangeTreeData.fire();
         } catch (error) {
-            await client.end();
+            await adapter.close();
             throw error;
         }
     }

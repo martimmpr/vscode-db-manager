@@ -6,7 +6,7 @@
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": ["Other"],
+  "categories": ["Visualization"],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -146,6 +146,7 @@
     "watch": "tsc -watch -p ./"
   },
   "dependencies": {
+    "mysql2": "^3.16.0",
     "pg": "^8.11.0"
   },
   "devDependencies": {
