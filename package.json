@@ -38,9 +38,9 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "databaseExplorer.openSQLConsole",
-        "title": "Open SQL Console",
-        "icon": "$(console)"
+        "command": "databaseExplorer.openTerminal",
+        "title": "Open Terminal",
+        "icon": "$(terminal)"
       },
       {
         "command": "databaseExplorer.filterDatabases",
@@ -96,29 +96,24 @@
     "menus": {
       "view/item/context": [
         {
-          "command": "databaseExplorer.openSQLConsole",
+          "command": "databaseExplorer.refreshConnection",
           "when": "viewItem == databaseConnection",
           "group": "inline@0"
         },
         {
-          "command": "databaseExplorer.refreshConnection",
+          "command": "databaseExplorer.filterDatabases",
           "when": "viewItem == databaseConnection",
           "group": "inline@1"
         },
         {
-          "command": "databaseExplorer.filterDatabases",
+          "command": "databaseExplorer.editConnection",
           "when": "viewItem == databaseConnection",
           "group": "inline@2"
         },
         {
-          "command": "databaseExplorer.editConnection",
-          "when": "viewItem == databaseConnection",
-          "group": "inline@3"
-        },
-        {
           "command": "databaseExplorer.removeConnection",
           "when": "viewItem == databaseConnection",
-          "group": "inline@4"
+          "group": "inline@3"
         },
         {
           "command": "databaseExplorer.addTable",
@@ -136,9 +131,14 @@
           "group": "inline@2"
         },
         {
-          "command": "databaseExplorer.exportDatabase",
+          "command": "databaseExplorer.openTerminal",
           "when": "viewItem == database",
           "group": "inline@3"
+        },
+        {
+          "command": "databaseExplorer.exportDatabase",
+          "when": "viewItem == database",
+          "group": "inline@4"
         },
         {
           "command": "databaseExplorer.editTable",

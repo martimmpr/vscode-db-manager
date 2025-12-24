@@ -1,14 +1,12 @@
 import * as vscode from 'vscode';
 import { DatabaseExplorer } from './databaseExplorer';
 import { TableViewer } from './tableViewer';
-import { SQLConsole } from './sqlConsole';
 import { Connection } from './types';
 import { DatabaseAdapterFactory, DatabaseDetector } from './database';
 
 export function activate(context: vscode.ExtensionContext) {
     const databaseExplorer = new DatabaseExplorer(context);
     const tableViewer = new TableViewer(context);
-    const sqlConsoles = new Map<string, SQLConsole>();
 
     let addConnection = vscode.commands.registerCommand('databaseExplorer.addConnection', async () => {
         const name = await vscode.window.showInputBox({
@@ -655,22 +653,54 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
 
-    let openSQLConsole = vscode.commands.registerCommand('databaseExplorer.openSQLConsole', async (item: any) => {
-        if (!item?.connection) return;
+    let openTerminal = vscode.commands.registerCommand('databaseExplorer.openTerminal', async (item: any) => {
+        if (!item?.connection || !item?.database) return;
 
         try {
-            // Check if console already exists for this connection
-            let console = sqlConsoles.get(item.connection.name);
+            const connection = item.connection;
+            const database = item.database;
+            const dbType = connection.type.toLowerCase();
             
-            if (!console) {
-                console = new SQLConsole(item.connection);
-                sqlConsoles.set(item.connection.name, console);
+            // Build terminal configuration based on database type
+            let terminal: vscode.Terminal;
+            let command: string;
+            
+            switch (dbType) {
+                case 'postgresql':
+                    // Create terminal with PGPASSWORD environment variable
+                    terminal = vscode.window.createTerminal({
+                        name: `${connection.name} - ${database}`,
+                        env: {
+                            'PGPASSWORD': connection.password
+                        }
+                    });
+                    command = `psql -U ${connection.username} -h ${connection.host} -p ${connection.port} -d ${database}`;
+                    break;
+                
+                case 'mysql':
+                case 'mariadb':
+                    // Create terminal with MYSQL_PWD environment variable
+                    terminal = vscode.window.createTerminal({
+                        name: `${connection.name} - ${database}`,
+                        env: {
+                            'MYSQL_PWD': connection.password
+                        }
+                    });
+                    command = `mysql -u ${connection.username} -h ${connection.host} -P ${connection.port} ${database}`;
+                    break;
+                
+                default:
+                    vscode.window.showErrorMessage(`Unsupported database type: ${connection.type}`);
+                    return;
             }
-            
-            console.show(context);
+
+            // Show the terminal and send the command
+            terminal.show();
+            terminal.sendText(`clear && ${command}`);
+
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            vscode.window.showErrorMessage(`Failed to open SQL Console: ${errorMessage}`);
+            vscode.window.showErrorMessage(`Failed to open terminal: ${errorMessage}`);
         }
     });
 
@@ -687,6 +717,6 @@ export function activate(context: vscode.ExtensionContext) {
         editTable,
         deleteTable,
         exportDatabase,
-        openSQLConsole
+        openTerminal
     );
 }
