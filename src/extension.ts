@@ -17,7 +17,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (!name) return;
 
         const dbType = await vscode.window.showQuickPick(
-            ['PostgreSQL', 'MySQL', 'MariaDB', 'SQLite'],
+            ['PostgreSQL', 'MySQL', 'MariaDB'],
             {
                 placeHolder: 'Select database type',
                 canPickMany: false
@@ -32,8 +32,7 @@ export function activate(context: vscode.ExtensionContext) {
             value: 'localhost'
         });
 
-        const defaultPort = dbType === 'PostgreSQL' ? '5432' : 
-                           dbType === 'MySQL' || dbType === 'MariaDB' ? '3306' : '0';
+        const defaultPort = dbType === 'PostgreSQL' ? '5432' : dbType === 'MySQL' || dbType === 'MariaDB' ? '3306' : '0';
 
         const port = await vscode.window.showInputBox({
             prompt: 'Enter port',
@@ -58,7 +57,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const connection: Connection = {
             name,
-            type: dbType as 'PostgreSQL' | 'MySQL' | 'MariaDB' | 'SQLite',
+            type: dbType as 'PostgreSQL' | 'MySQL' | 'MariaDB',
             host,
             port: parseInt(port),
             username: username.trim(),
@@ -156,7 +155,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (!name) return;
 
         const dbType = await vscode.window.showQuickPick(
-            ['PostgreSQL', 'MySQL', 'MariaDB', 'SQLite'],
+            ['PostgreSQL', 'MySQL', 'MariaDB'],
             {
                 placeHolder: 'Select database type',
                 canPickMany: false
@@ -193,7 +192,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const newConnection: Connection = {
             name,
-            type: dbType as 'PostgreSQL' | 'MySQL' | 'MariaDB' | 'SQLite',
+            type: dbType as 'PostgreSQL' | 'MySQL' | 'MariaDB',
             host,
             port: parseInt(port),
             username: username.trim(),

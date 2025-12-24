@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 
-export type DatabaseType = 'PostgreSQL' | 'MySQL' | 'MariaDB' | 'SQLite';
+export type DatabaseType = 'PostgreSQL' | 'MySQL' | 'MariaDB';
 
 export interface Connection {
     name: string;
@@ -42,9 +42,6 @@ export class DatabaseItem extends vscode.TreeItem {
                             break;
                         case 'MariaDB':
                             this.iconPath = path.join(iconFolder, 'mariadb.svg');
-                            break;
-                        case 'SQLite':
-                            this.iconPath = path.join(iconFolder, 'sqlite.svg');
                             break;
                         default:
                             this.iconPath = new vscode.ThemeIcon('database');
