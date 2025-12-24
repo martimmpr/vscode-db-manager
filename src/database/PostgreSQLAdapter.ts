@@ -1,6 +1,6 @@
 import { Client } from 'pg';
 import { Connection } from '../types';
-import { IDatabaseAdapter, ColumnDefinition, ColumnInfo } from './IDatabaseAdapter';
+import { IDatabaseAdapter, ColumnDefinition, ColumnInfo, QueryResult } from './IDatabaseAdapter';
 
 export class PostgreSQLAdapter implements IDatabaseAdapter {
     private connection: Connection;
@@ -245,6 +245,17 @@ export class PostgreSQLAdapter implements IDatabaseAdapter {
         }
 
         return sql;
+    }
+
+    async executeQuery(query: string, database?: string): Promise<QueryResult> {
+        const client = await this.getClient(database);
+        const result = await client.query(query);
+        
+        return {
+            rows: result.rows,
+            fields: result.fields?.map(field => ({ name: field.name })),
+            affectedRows: result.rowCount || undefined
+        };
     }
 
     async close(): Promise<void> {

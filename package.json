@@ -91,6 +91,27 @@
         "command": "databaseExplorer.exportDatabase",
         "title": "Export Database",
         "icon": "$(export)"
+      },
+      {
+        "command": "sqlQueryRunner.selectConnection",
+        "title": "Select Database Connection"
+      },
+      {
+        "command": "sqlQueryRunner.selectDatabase",
+        "title": "Select Database"
+      },
+      {
+        "command": "sqlQueryRunner.executeQuery",
+        "title": "Execute SQL Query",
+        "icon": {
+          "light": "src/icons/run-green-light.svg",
+          "dark": "src/icons/run-green.svg"
+        },
+        "enablement": "editorLangId == sql && editorHasSelection"
+      },
+      {
+        "command": "sqlQueryRunner.executeCurrentLine",
+        "title": "Execute Current Line or Selection"
       }
     ],
     "menus": {
@@ -151,6 +172,13 @@
           "group": "inline@1"
         }
       ],
+      "editor/title": [
+        {
+          "command": "sqlQueryRunner.executeQuery",
+          "when": "resourceLangId == sql && editorHasSelection",
+          "group": "navigation"
+        }
+      ],
       "view/title": [
         {
           "command": "databaseExplorer.addConnection",
@@ -158,7 +186,15 @@
           "group": "navigation"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "sqlQueryRunner.executeCurrentLine",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && editorLangId == sql"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

@@ -1,4 +1,4 @@
-export { IDatabaseAdapter, ColumnDefinition, ColumnInfo } from './IDatabaseAdapter';
+export { IDatabaseAdapter, ColumnDefinition, ColumnInfo, QueryResult } from './IDatabaseAdapter';
 export { PostgreSQLAdapter } from './PostgreSQLAdapter';
 export { MySQLAdapter } from './MySQLAdapter';
 export { MariaDBAdapter } from './MariaDBAdapter';

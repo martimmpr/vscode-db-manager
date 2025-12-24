@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
 import { DatabaseExplorer } from './databaseExplorer';
 import { TableViewer } from './tableViewer';
+import { SqlQueryRunner } from './sqlQueryRunner';
 import { Connection } from './types';
 import { DatabaseAdapterFactory, DatabaseDetector } from './database';
 
 export function activate(context: vscode.ExtensionContext) {
     const databaseExplorer = new DatabaseExplorer(context);
     const tableViewer = new TableViewer(context);
+    const sqlQueryRunner = new SqlQueryRunner(context);
 
     let addConnection = vscode.commands.registerCommand('databaseExplorer.addConnection', async () => {
         const name = await vscode.window.showInputBox({
@@ -704,6 +706,23 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // SQL Query Runner commands
+    let selectConnection = vscode.commands.registerCommand('sqlQueryRunner.selectConnection', async () => {
+        await sqlQueryRunner.selectConnection();
+    });
+
+    let selectDatabase = vscode.commands.registerCommand('sqlQueryRunner.selectDatabase', async () => {
+        await sqlQueryRunner.selectDatabase();
+    });
+
+    let executeQuery = vscode.commands.registerCommand('sqlQueryRunner.executeQuery', async () => {
+        await sqlQueryRunner.executeQuery();
+    });
+
+    let executeCurrentLine = vscode.commands.registerCommand('sqlQueryRunner.executeCurrentLine', async () => {
+        await sqlQueryRunner.executeCurrentLine();
+    });
+
     context.subscriptions.push(
         addConnection, 
         refreshConnection, 
@@ -717,6 +736,10 @@ export function activate(context: vscode.ExtensionContext) {
         editTable,
         deleteTable,
         exportDatabase,
-        openTerminal
+        openTerminal,
+        selectConnection,
+        selectDatabase,
+        executeQuery,
+        executeCurrentLine
     );
 }

@@ -14,6 +14,12 @@ export interface ColumnInfo {
     numeric_scale?: number;
 }
 
+export interface QueryResult {
+    rows: any[];
+    fields?: Array<{ name: string }>;
+    affectedRows?: number;
+}
+
 export interface IDatabaseAdapter {
     // Test the connection to the database
     testConnection(): Promise<void>;
@@ -50,6 +56,9 @@ export interface IDatabaseAdapter {
 
     // Execute a raw query
     query(database: string, query: string, params?: any[]): Promise<any>;
+
+    // Execute a query and return formatted results
+    executeQuery(query: string, database?: string): Promise<QueryResult>;
 
     // Export database structure and data
     exportDatabase(database: string, includeData: boolean): Promise<string>;

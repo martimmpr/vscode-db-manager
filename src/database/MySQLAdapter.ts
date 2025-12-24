@@ -1,6 +1,6 @@
 import * as mysql from 'mysql2/promise';
 import { Connection } from '../types';
-import { IDatabaseAdapter, ColumnDefinition, ColumnInfo } from './IDatabaseAdapter';
+import { IDatabaseAdapter, ColumnDefinition, ColumnInfo, QueryResult } from './IDatabaseAdapter';
 
 export class MySQLAdapter implements IDatabaseAdapter {
     private connection: Connection;
@@ -263,6 +263,28 @@ export class MySQLAdapter implements IDatabaseAdapter {
         }
 
         return sql;
+    }
+
+    async executeQuery(query: string, database?: string): Promise<QueryResult> {
+        const conn = await this.getConnection(database);
+        const [rows, fields] = await conn.query(query);
+        
+        // Check if it's a result set or an OkPacket
+        if (Array.isArray(rows)) {
+            return {
+                rows: rows as any[],
+                fields: (fields as mysql.FieldPacket[])?.map(field => ({ name: field.name })),
+                affectedRows: undefined
+            };
+        } else {
+            // OkPacket for INSERT, UPDATE, DELETE
+            const okPacket = rows as mysql.OkPacket;
+            return {
+                rows: [],
+                fields: undefined,
+                affectedRows: okPacket.affectedRows
+            };
+        }
     }
 
     async close(): Promise<void> {
