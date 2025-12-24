@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
 import { DatabaseExplorer } from './databaseExplorer';
 import { TableViewer } from './tableViewer';
+import { SQLConsole } from './sqlConsole';
 import { Connection } from './types';
 import { DatabaseAdapterFactory, DatabaseDetector } from './database';
 
 export function activate(context: vscode.ExtensionContext) {
     const databaseExplorer = new DatabaseExplorer(context);
     const tableViewer = new TableViewer(context);
+    const sqlConsoles = new Map<string, SQLConsole>();
 
     let addConnection = vscode.commands.registerCommand('databaseExplorer.addConnection', async () => {
         const name = await vscode.window.showInputBox({
@@ -653,6 +655,25 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
 
+    let openSQLConsole = vscode.commands.registerCommand('databaseExplorer.openSQLConsole', async (item: any) => {
+        if (!item?.connection) return;
+
+        try {
+            // Check if console already exists for this connection
+            let console = sqlConsoles.get(item.connection.name);
+            
+            if (!console) {
+                console = new SQLConsole(item.connection);
+                sqlConsoles.set(item.connection.name, console);
+            }
+            
+            console.show(context);
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+            vscode.window.showErrorMessage(`Failed to open SQL Console: ${errorMessage}`);
+        }
+    });
+
     context.subscriptions.push(
         addConnection, 
         refreshConnection, 
@@ -665,6 +686,7 @@ export function activate(context: vscode.ExtensionContext) {
         filterTables,
         editTable,
         deleteTable,
-        exportDatabase
+        exportDatabase,
+        openSQLConsole
     );
 }

@@ -38,6 +38,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "databaseExplorer.openSQLConsole",
+        "title": "Open SQL Console",
+        "icon": "$(console)"
+      },
+      {
         "command": "databaseExplorer.filterDatabases",
         "title": "Filter Databases",
         "icon": "$(filter)"
@@ -91,24 +96,29 @@
     "menus": {
       "view/item/context": [
         {
-          "command": "databaseExplorer.refreshConnection",
+          "command": "databaseExplorer.openSQLConsole",
           "when": "viewItem == databaseConnection",
           "group": "inline@0"
         },
         {
-          "command": "databaseExplorer.filterDatabases",
+          "command": "databaseExplorer.refreshConnection",
           "when": "viewItem == databaseConnection",
           "group": "inline@1"
         },
         {
-          "command": "databaseExplorer.editConnection",
+          "command": "databaseExplorer.filterDatabases",
           "when": "viewItem == databaseConnection",
           "group": "inline@2"
         },
         {
-          "command": "databaseExplorer.removeConnection",
+          "command": "databaseExplorer.editConnection",
           "when": "viewItem == databaseConnection",
           "group": "inline@3"
+        },
+        {
+          "command": "databaseExplorer.removeConnection",
+          "when": "viewItem == databaseConnection",
+          "group": "inline@4"
         },
         {
           "command": "databaseExplorer.addTable",
