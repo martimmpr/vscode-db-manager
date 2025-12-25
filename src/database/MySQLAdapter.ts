@@ -273,7 +273,17 @@ export class MySQLAdapter implements IDatabaseAdapter {
         if (Array.isArray(rows)) {
             return {
                 rows: rows as any[],
-                fields: (fields as mysql.FieldPacket[])?.map(field => ({ name: field.name })),
+                fields: (fields as mysql.FieldPacket[])?.map(field => {
+                    const flags = field.flags as any as number || 0;
+                    return {
+                        name: field.name,
+                        dataType: field.type !== undefined ? this.getMySQLType(field.type) : undefined,
+                        isPrimaryKey: (flags & 2) !== 0, // PRI_KEY_FLAG
+                        isUnique: (flags & 4) !== 0, // UNIQUE_KEY_FLAG
+                        isAutoIncrement: (flags & 512) !== 0, // AUTO_INCREMENT_FLAG
+                        isNullable: (flags & 1) === 0 // NOT_NULL_FLAG
+                    };
+                }),
                 affectedRows: undefined
             };
         } else {
@@ -285,6 +295,37 @@ export class MySQLAdapter implements IDatabaseAdapter {
                 affectedRows: okPacket.affectedRows
             };
         }
+    }
+
+    private getMySQLType(type: number): string {
+        const types: { [key: number]: string } = {
+            0: 'decimal',
+            1: 'tinyint',
+            2: 'smallint',
+            3: 'int',
+            4: 'float',
+            5: 'double',
+            7: 'timestamp',
+            8: 'bigint',
+            9: 'mediumint',
+            10: 'date',
+            11: 'time',
+            12: 'datetime',
+            13: 'year',
+            15: 'varchar',
+            16: 'bit',
+            245: 'json',
+            246: 'decimal',
+            247: 'enum',
+            248: 'set',
+            249: 'tinyblob',
+            250: 'mediumblob',
+            251: 'longblob',
+            252: 'blob',
+            253: 'varchar',
+            254: 'char',
+        };
+        return types[type] || `type(${type})`;
     }
 
     async close(): Promise<void> {

@@ -251,11 +251,94 @@ export class PostgreSQLAdapter implements IDatabaseAdapter {
         const client = await this.getClient(database);
         const result = await client.query(query);
         
+        // Try to get table name from query (simple SELECT * FROM table pattern)
+        let tableName: string | null = null;
+        const tableMatch = query.match(/FROM\s+["`]?(\w+)["`]?/i);
+        if (tableMatch) {
+            tableName = tableMatch[1];
+        }
+        
+        // If we have a table name and fields, get metadata
+        let fieldsWithMetadata = result.fields?.map(field => ({ 
+            name: field.name,
+            dataType: field.dataTypeID ? this.getPostgresType(field.dataTypeID) : undefined,
+            isPrimaryKey: false,
+            isUnique: false,
+            isAutoIncrement: false,
+            isNullable: true
+        }));
+        
+        if (tableName && result.fields && result.fields.length > 0) {
+            try {
+                // Get column metadata
+                const metadataQuery = `
+                    SELECT 
+                        c.column_name,
+                        c.is_nullable,
+                        c.column_default,
+                        EXISTS(
+                            SELECT 1 FROM information_schema.table_constraints tc
+                            JOIN information_schema.key_column_usage kcu 
+                                ON tc.constraint_name = kcu.constraint_name
+                            WHERE tc.constraint_type = 'PRIMARY KEY'
+                            AND kcu.table_name = c.table_name
+                            AND kcu.column_name = c.column_name
+                        ) as is_primary_key,
+                        EXISTS(
+                            SELECT 1 FROM information_schema.table_constraints tc
+                            JOIN information_schema.key_column_usage kcu 
+                                ON tc.constraint_name = kcu.constraint_name
+                            WHERE tc.constraint_type = 'UNIQUE'
+                            AND kcu.table_name = c.table_name
+                            AND kcu.column_name = c.column_name
+                        ) as is_unique
+                    FROM information_schema.columns c
+                    WHERE c.table_name = $1
+                    AND c.table_schema = 'public'
+                `;
+                
+                const metadata = await client.query(metadataQuery, [tableName]);
+                const metadataMap = new Map(metadata.rows.map((row: any) => [row.column_name, row]));
+                
+                fieldsWithMetadata = result.fields.map(field => {
+                    const meta = metadataMap.get(field.name);
+                    return {
+                        name: field.name,
+                        dataType: field.dataTypeID ? this.getPostgresType(field.dataTypeID) : undefined,
+                        isPrimaryKey: meta?.is_primary_key || false,
+                        isUnique: meta?.is_unique || false,
+                        isAutoIncrement: meta?.column_default?.includes('nextval') || false,
+                        isNullable: meta?.is_nullable === 'YES'
+                    };
+                });
+            } catch (error) {
+                // If metadata fetch fails, use basic info
+                console.error('Failed to fetch column metadata:', error);
+            }
+        }
+        
         return {
             rows: result.rows,
-            fields: result.fields?.map(field => ({ name: field.name })),
+            fields: fieldsWithMetadata,
             affectedRows: result.rowCount || undefined
         };
+    }
+
+    private getPostgresType(typeId: number): string {
+        const types: { [key: number]: string } = {
+            16: 'boolean',
+            20: 'bigint',
+            21: 'smallint',
+            23: 'integer',
+            25: 'text',
+            700: 'real',
+            701: 'double precision',
+            1043: 'varchar',
+            1082: 'date',
+            1114: 'timestamp',
+            1184: 'timestamp with time zone',
+        };
+        return types[typeId] || `type(${typeId})`;
     }
 
     async close(): Promise<void> {

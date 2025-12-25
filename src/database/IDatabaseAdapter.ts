@@ -16,7 +16,14 @@ export interface ColumnInfo {
 
 export interface QueryResult {
     rows: any[];
-    fields?: Array<{ name: string }>;
+    fields?: Array<{ 
+        name: string;
+        dataType?: string;
+        isPrimaryKey?: boolean;
+        isUnique?: boolean;
+        isAutoIncrement?: boolean;
+        isNullable?: boolean;
+    }>;
     affectedRows?: number;
 }
 

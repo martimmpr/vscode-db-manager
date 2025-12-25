@@ -1,15 +1,18 @@
 import * as vscode from 'vscode';
 import { Connection } from './types';
 import { DatabaseAdapterFactory } from './database';
+import { QueryResultViewer } from './queryResultViewer';
 
 export class SqlQueryRunner {
     private activeConnection: Connection | undefined;
     private activeDatabase: string | undefined;
     private statusBarItem: vscode.StatusBarItem;
     private context: vscode.ExtensionContext;
+    private resultViewer: QueryResultViewer;
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
+        this.resultViewer = new QueryResultViewer(context);
         
         this.statusBarItem = vscode.window.createStatusBarItem(
             vscode.StatusBarAlignment.Left,
@@ -251,30 +254,14 @@ export class SqlQueryRunner {
                 await adapter.close();
 
                 if (result && result.rows && result.rows.length > 0) {
-                    // Show results in output channel
-                    const outputChannel = vscode.window.createOutputChannel('SQL Results');
-                    outputChannel.clear();
-                    outputChannel.appendLine('Query executed successfully!');
-                    outputChannel.appendLine(`Rows returned: ${result.rows.length}`);
-                    outputChannel.appendLine('');
-                    
-                    if (result.fields && result.fields.length > 0) {
-                        const headers = result.fields.map((f: { name: string }) => f.name);
-                        outputChannel.appendLine(headers.join(' | '));
-                        outputChannel.appendLine(headers.map((h: string) => '-'.repeat(h.length)).join('-+-'));
-                        
-                        result.rows.forEach((row: any) => {
-                            const values = headers.map((h: string) => {
-                                const value = row[h];
-                                return value !== null && value !== undefined ? String(value) : 'NULL';
-                            });
-                            outputChannel.appendLine(values.join(' | '));
-                        });
-                    }
-                    
-                    outputChannel.show();
+                    // Show results in webview
+                    const connectionName = this.activeConnection?.name || 'Unknown';
+                    this.resultViewer.showResults(query, result, this.activeDatabase, connectionName);
                     vscode.window.showInformationMessage(`Query executed successfully! ${result.rows.length} row(s) returned.`);
                 } else if (result && result.affectedRows !== undefined) {
+                    // Show success message for INSERT/UPDATE/DELETE
+                    const connectionName = this.activeConnection?.name || 'Unknown';
+                    this.resultViewer.showResults(query, result, this.activeDatabase, connectionName);
                     vscode.window.showInformationMessage(`Query executed successfully! ${result.affectedRows} row(s) affected.`);
                 } else {
                     vscode.window.showInformationMessage('Query executed successfully!');
