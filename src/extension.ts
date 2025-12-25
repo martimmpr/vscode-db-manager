@@ -446,6 +446,10 @@ export function activate(context: vscode.ExtensionContext) {
                     item.table,
                     newTableName
                 );
+                
+                // Update the webview if the table is currently open
+                await tableViewer.renameCurrentTable(newTableName);
+                
                 vscode.window.showInformationMessage(`Table renamed from "${item.table}" to "${newTableName}" successfully!`);
             } catch (error: unknown) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';

@@ -9,6 +9,7 @@ export class TableViewer {
     private adapter: IDatabaseAdapter | undefined;
     private currentConnection: Connection | undefined;
     private currentDatabase: string | undefined;
+    private currentTableName: string | undefined;
 
     constructor(
         private context: vscode.ExtensionContext
@@ -69,6 +70,7 @@ export class TableViewer {
 
             this.currentConnection = connection;
             this.currentDatabase = database;
+            this.currentTableName = tableName;
             this.adapter = DatabaseAdapterFactory.createAdapter(connection);
             await this.adapter.testConnection();
 
@@ -164,6 +166,14 @@ export class TableViewer {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to connect to database: ${errorMessage}`);
         }
+    }
+
+    public async renameCurrentTable(newTableName: string) {
+        if (!TableViewer.currentPanel || !this.currentTableName) return;
+        
+        this.currentTableName = newTableName;
+        TableViewer.currentPanel.title = newTableName;
+        await this.loadTableData(newTableName);
     }
 
     private async loadTableData(
