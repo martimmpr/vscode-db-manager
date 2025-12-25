@@ -164,13 +164,21 @@ export class SqlQueryRunner {
             }
         }
 
+        let query: string;
         const selection = editor.selection;
-        if (selection.isEmpty) {
-            vscode.window.showWarningMessage('Please select SQL code to execute.');
-            return;
-        }
 
-        const query = editor.document.getText(selection);
+        // If there's a selection, use it; otherwise, use the current line
+        if (!selection.isEmpty) {
+            query = editor.document.getText(selection);
+        } else {
+            const currentLine = editor.document.lineAt(editor.selection.active.line);
+            query = currentLine.text.trim();
+            
+            if (!query) {
+                vscode.window.showWarningMessage('Please select SQL code or place cursor on a line with SQL code.');
+                return;
+            }
+        }
         
         // Check if query is USE DATABASE command
         const useDbMatch = query.trim().match(/^USE\s+(?:DATABASE\s+)?([`"]?)(\w+)\1\s*;?\s*$/i);

@@ -102,12 +102,12 @@
       },
       {
         "command": "sqlQueryRunner.executeQuery",
-        "title": "Execute SQL Query",
+        "title": "Execute SQL Query (Ctrl+Enter)",
         "icon": {
           "light": "src/icons/run-green-light.svg",
           "dark": "src/icons/run-green.svg"
         },
-        "enablement": "editorLangId == sql && editorHasSelection"
+        "enablement": "editorLangId == sql"
       },
       {
         "command": "sqlQueryRunner.executeCurrentLine",
@@ -175,7 +175,7 @@
       "editor/title": [
         {
           "command": "sqlQueryRunner.executeQuery",
-          "when": "resourceLangId == sql && editorHasSelection",
+          "when": "resourceLangId == sql",
           "group": "navigation"
         }
       ],
