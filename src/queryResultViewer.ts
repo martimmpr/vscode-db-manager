@@ -32,6 +32,12 @@ export class QueryResultViewer {
                 }
             );
 
+            // Set icon for the panel with theme support
+            this.panel.iconPath = {
+                light: vscode.Uri.file(path.join(this.context.extensionPath, 'src', 'icons', 'output-light.svg')),
+                dark: vscode.Uri.file(path.join(this.context.extensionPath, 'src', 'icons', 'output-dark.svg'))
+            };
+
             this.panel.onDidDispose(() => {
                 this.panel = undefined;
             });

@@ -47,6 +47,12 @@ export class TableViewer {
                 }
             );
 
+            // Set icon for the panel with theme support
+            TableViewer.currentPanel.iconPath = {
+                light: vscode.Uri.file(path.join(this.context.extensionPath, 'src', 'icons', 'table-light.svg')),
+                dark: vscode.Uri.file(path.join(this.context.extensionPath, 'src', 'icons', 'table-dark.svg'))
+            };
+
             TableViewer.currentPanel.onDidDispose(() => {
                 TableViewer.currentPanel = undefined;
                 if (this.adapter) {
