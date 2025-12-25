@@ -819,6 +819,10 @@ export class TableViewer {
             border-right: none;
         }
 
+        tr:last-child td {
+            border-bottom: none;
+        }
+
         th {
             border-right: 1px solid var(--vscode-panel-border);
         }

@@ -282,6 +282,10 @@ export class QueryResultViewer {
                     border-right: none;
                 }
                 
+                tr:last-child td {
+                    border-bottom: none;
+                }
+                
                 tr:hover {
                     background-color: var(--vscode-list-hoverBackground);
                 }
