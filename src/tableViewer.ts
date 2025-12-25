@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import { Connection } from './types';
 import { DatabaseAdapterFactory, IDatabaseAdapter } from './database';
 
@@ -11,6 +13,16 @@ export class TableViewer {
     constructor(
         private context: vscode.ExtensionContext
     ) {}
+
+    private loadSvg(iconName: string): string {
+        try {
+            const iconPath = path.join(this.context.extensionPath, 'src', 'icons', `${iconName}.svg`);
+            return fs.readFileSync(iconPath, 'utf8');
+        } catch (error) {
+            console.error(`Failed to load SVG icon: ${iconName}`, error);
+            return '';
+        }
+    }
 
     public async openTable(
         connection: Connection,
@@ -1060,51 +1072,37 @@ export class TableViewer {
         <div class="toolbar-separator"></div>
         
         <button class="icon-btn add" onclick="showAddModal()" title="Add Row">
-            <svg viewBox="0 0 16 16">
-                <path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="2" fill="none"/>
-            </svg>
+            ${this.loadSvg('add')}
         </button>
         
         <button class="icon-btn commit" id="commitBtn" onclick="commitChanges()" disabled title="Commit Changes">
-            <svg viewBox="0 0 16 16">
-                <path d="M2 8l4 4 8-8" stroke="currentColor" stroke-width="2" fill="none"/>
-            </svg>
+            ${this.loadSvg('check')}
         </button>
         
         <button class="icon-btn revert" id="revertBtn" onclick="revertChanges()" disabled title="Revert Changes">
-            <svg viewBox="0 0 16 16">
-                <path d="M2.5 2.5A6.5 6.5 0 0 1 8 1c3.9 0 7 3.1 7 7s-3.1 7-7 7c-3.2 0-5.8-2.1-6.7-5h1.5c.8 2 2.7 3.5 5.2 3.5 3 0 5.5-2.5 5.5-5.5S11 2.5 8 2.5c-1.5 0-2.9.6-3.9 1.7L6 6H1V1l1.5 1.5z"/>
-            </svg>
+            ${this.loadSvg('revert')}
         </button>
         
         <button class="icon-btn delete" id="deleteBtn" onclick="deleteSelected()" disabled title="Delete Selected">
-            <svg viewBox="0 0 16 16">
-                <path d="M5 3V1h6v2h4v2h-1v9c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1V5H1V3h4zm1 2v7h1V5H6zm3 0v7h1V5H9z"/>
-            </svg>
+            ${this.loadSvg('delete')}
         </button>
         
         <div class="toolbar-separator"></div>
         
         <button class="icon-btn refresh" onclick="refresh()" title="Refresh">
-            <svg viewBox="0 0 16 16">
-                <path d="M13.5 2.5A6.5 6.5 0 0 0 8 1C4.1 1 1 4.1 1 8s3.1 7 7 7c3.2 0 5.8-2.1 6.7-5h-1.5c-.8 2-2.7 3.5-5.2 3.5-3 0-5.5-2.5-5.5-5.5S5 2.5 8 2.5c1.5 0 2.9.6 3.9 1.7L10 6h5V1l-1.5 1.5z"/>
-            </svg>
+            ${this.loadSvg('refresh')}
         </button>
         
         <div class="toolbar-right">
             <div class="pagination">
                 <button class="icon-btn" onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} title="Previous Page">
-                    <svg viewBox="0 0 16 16">
-                        <path d="M10 2L4 8l6 6" stroke="currentColor" stroke-width="2" fill="none"/>
-                    </svg>
+                    ${this.loadSvg('arrow-left')}
                 </button>
                 
                 <span class="page-number">${currentPage}</span>
                 
                 <button class="icon-btn" onclick="goToPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} title="Next Page">
-                    <svg viewBox="0 0 16 16">
-                        <path d="M6 2l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none"/>
-                    </svg>
+                    ${this.loadSvg('arrow-right')}
                 </button>
             </div>
             
@@ -1133,12 +1131,8 @@ export class TableViewer {
                             ${primaryKeys.includes(col.column_name) ? '<span class="pk-indicator">🔑</span>' : ''}${uniqueKeys.includes(col.column_name) ? '<span class="unique-indicator">🔐</span>' : ''}${identityColumns.includes(col.column_name) ? '<span class="identity-indicator">↻</span>' : ''}${col.column_name}${col.is_nullable === 'NO' ? '<span class="required-indicator">*</span>' : ''}
                             <span class="column-type">(${col.data_type})</span>
                             <span class="sort-icon" data-column="${col.column_name}">
-                                <svg class="sort-up" viewBox="0 0 16 16">
-                                    <path d="M8 4 L4 10 L12 10 Z"/>
-                                </svg>
-                                <svg class="sort-down" viewBox="0 0 16 16">
-                                    <path d="M8 12 L4 6 L12 6 Z"/>
-                                </svg>
+                                ${this.loadSvg('sort-up')}
+                                ${this.loadSvg('sort-down')}
                             </span>
                         </th>
                     `).join('')}

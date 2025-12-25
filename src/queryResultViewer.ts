@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 
 export class QueryResultViewer {
     private panel: vscode.WebviewPanel | undefined;
@@ -6,6 +8,16 @@ export class QueryResultViewer {
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
+    }
+
+    private loadSvg(iconName: string): string {
+        try {
+            const iconPath = path.join(this.context.extensionPath, 'src', 'icons', `${iconName}.svg`);
+            return fs.readFileSync(iconPath, 'utf8');
+        } catch (error) {
+            console.error(`Failed to load SVG icon: ${iconName}`, error);
+            return '';
+        }
     }
 
     public showResults(query: string, results: any, database?: string, connection?: string, tableName?: string, connectionObj?: any) {
@@ -313,10 +325,10 @@ export class QueryResultViewer {
                 ${rowCount > 0 ? `
                     <div class="header-right">
                         <button class="export-btn csv" onclick="exportCSV()" title="Export as CSV">
-                            <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.25 15L13.75 15C14.439 15 15 14.439 15 13.75L15 2.25C15 1.561 14.439 1 13.75 1L12.25 1C11.561 1 11 1.561 11 2.25L11 13.75C11 14.439 11.561 15 12.25 15ZM12 2.25C12 2.112 12.112 2 12.25 2L13.75 2C13.888 2 14 2.112 14 2.25L14 13.75C14 13.888 13.888 14 13.75 14L12.25 14C12.112 14 12 13.888 12 13.75L12 2.25Z"/><path fill-rule="evenodd" clip-rule="evenodd" d="M8.75 15L7.25 15C6.561 15 6 14.439 6 13.75L6 6.25C6 5.561 6.561 5 7.25 5L8.75 5C9.439 5 10 5.561 10 6.25L10 13.75C10 14.439 9.439 15 8.75 15ZM7.25 6C7.112 6 7 6.112 7 6.25L7 13.75C7 13.888 7.112 14 7.25 14L8.75 14C8.888 14 9 13.888 9 13.75L9 6.25C9 6.112 8.888 6 8.75 6L7.25 6Z"/><path fill-rule="evenodd" clip-rule="evenodd" d="M3.75 15L2.25 15C1.561 15 1 14.439 1 13.75L1 8.25C1 7.561 1.561 7 2.25 7L3.75 7C4.439 7 5 7.561 5 8.25L5 13.75C5 14.439 4.439 15 3.75 15ZM2.25 8C2.112 8 2 8.112 2 8.25L2 13.75C2 13.888 2.112 14 2.25 14L3.75 14C3.888 14 4 13.888 4 13.75L4 8.25C4 8.112 3.888 8 3.75 8L2.25 8Z"/></svg>
+                            ${this.loadSvg('graph')}
                         </button>
                         <button class="export-btn sql" onclick="exportSQL()" title="Export as SQL">
-                            <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M8 1C5.149 1 3 2.075 3 3.5V12.5C3 13.925 5.149 15 8 15C10.851 15 13 13.925 13 12.5V3.5C13 2.075 10.851 1 8 1ZM8 2C10.441 2 12 2.888 12 3.5C12 4.112 10.441 5 8 5C5.559 5 4 4.112 4 3.5C4 2.888 5.558 2 8 2ZM8 14C5.558 14 4 13.111 4 12.5V5.021C5.21405 5.71872 6.60095 6.05816 8 6C9.39905 6.05816 10.7859 5.71872 12 5.021V12.5C12 13.111 10.441 14 8 14Z"/></svg>
+                            ${this.loadSvg('database')}
                         </button>
                     </div>
                 ` : '<div class="header-right"></div>'}
