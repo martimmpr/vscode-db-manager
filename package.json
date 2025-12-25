@@ -3,10 +3,36 @@
   "displayName": "Database Manager",
   "description": "PostgreSQL + MySQL + MariaDB Database Manager for VSCode",
   "version": "1.0.0",
+  "publisher": "martimmpr",
+  "author": {
+    "name": "Martim 'martimmpr' Ribeiro"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/martimmpr/vscode-db-manager"
+  },
+  "bugs": {
+    "url": "https://github.com/martimmpr/vscode-db-manager/issues"
+  },
+  "homepage": "https://github.com/martimmpr/vscode-db-manager#readme",
+  "keywords": [
+    "database",
+    "postgresql",
+    "mysql",
+    "mariadb",
+    "sql",
+    "database manager",
+    "database explorer"
+  ],
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": ["Visualization"],
+  "categories": [
+    "Visualization",
+    "Data Science"
+  ],
+  "icon": "./icon.png",
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -197,7 +223,10 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run esbuild-base -- --minify",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "esbuild": "npm run esbuild-base -- --sourcemap",
+    "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./"
   },
@@ -209,6 +238,7 @@
     "@types/node": "^16.11.7",
     "@types/pg": "^8.6.6",
     "@types/vscode": "^1.80.0",
+    "esbuild": "^0.27.2",
     "typescript": "^5.0.4"
   }
 }
