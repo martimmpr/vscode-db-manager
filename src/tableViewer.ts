@@ -1130,7 +1130,7 @@ export class TableViewer {
                     </th>
                     ${columns.map((col, colIndex) => `
                         <th class="sortable" onclick="sortByColumn('${col.column_name}', ${colIndex})">
-                            ${primaryKeys.includes(col.column_name) ? '<span class="pk-indicator">🔑</span>' : ''}${uniqueKeys.includes(col.column_name) ? '<span class="unique-indicator">🔐</span>' : ''}${identityColumns.includes(col.column_name) ? '<span class="identity-indicator">↻</span>' : ''}${col.column_name}${col.is_nullable === 'NO' && !primaryKeys.includes(col.column_name) ? '<span class="required-indicator">*</span>' : ''}
+                            ${primaryKeys.includes(col.column_name) ? '<span class="pk-indicator">🔑</span>' : ''}${uniqueKeys.includes(col.column_name) ? '<span class="unique-indicator">🔐</span>' : ''}${identityColumns.includes(col.column_name) ? '<span class="identity-indicator">↻</span>' : ''}${col.column_name}${col.is_nullable === 'NO' ? '<span class="required-indicator">*</span>' : ''}
                             <span class="column-type">(${col.data_type})</span>
                             <span class="sort-icon" data-column="${col.column_name}">
                                 <svg class="sort-up" viewBox="0 0 16 16">
