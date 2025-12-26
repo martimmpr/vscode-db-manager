@@ -10,6 +10,7 @@ export class TableViewer {
     private currentConnection: Connection | undefined;
     private currentDatabase: string | undefined;
     private currentTableName: string | undefined;
+    private messageDisposable: vscode.Disposable | undefined;
 
     constructor(
         private context: vscode.ExtensionContext
@@ -30,6 +31,12 @@ export class TableViewer {
         database: string,
         tableName: string
     ) {
+        // Dispose of previous message handler if panel is being reused
+        if (this.messageDisposable) {
+            this.messageDisposable.dispose();
+            this.messageDisposable = undefined;
+        }
+
         // Reuse existing panel or create new one
         if (TableViewer.currentPanel) {
             TableViewer.currentPanel.title = tableName;
@@ -56,6 +63,10 @@ export class TableViewer {
 
             TableViewer.currentPanel.onDidDispose(() => {
                 TableViewer.currentPanel = undefined;
+                if (this.messageDisposable) {
+                    this.messageDisposable.dispose();
+                    this.messageDisposable = undefined;
+                }
                 if (this.adapter) {
                     this.adapter.close();
                 }
@@ -77,12 +88,16 @@ export class TableViewer {
             // Load and display data
             await this.loadTableData(tableName);
 
-            // Handle messages from the webview
-            TableViewer.currentPanel.webview.onDidReceiveMessage(
+            // Handle messages from the webview (dispose previous handler first)
+            this.messageDisposable = TableViewer.currentPanel.webview.onDidReceiveMessage(
                 async (message) => {
+                    // Use instance variables instead of closure variables
+                    const currentTable = this.currentTableName;
+                    if (!currentTable) return;
+
                     switch (message.command) {
                         case 'refresh':
-                            await this.loadTableData(tableName);
+                            await this.loadTableData(currentTable);
                             break;
                         case 'delete':
                             // Ask for confirmation
@@ -92,7 +107,7 @@ export class TableViewer {
                                 'No'
                             );
                             if (confirmDelete === 'Yes') {
-                                await this.deleteRow(tableName, message.row);
+                                await this.deleteRow(currentTable, message.row);
                             }
                             break;
                         case 'deleteMultiple':
@@ -113,7 +128,7 @@ export class TableViewer {
                                 let failCount = 0;
                                 
                                 for (const row of message.rows) {
-                                    const success = await this.deleteRow(tableName, row, true);
+                                    const success = await this.deleteRow(currentTable, row, true);
                                     if (success) {
                                         successCount++;
                                     } else {
@@ -121,7 +136,7 @@ export class TableViewer {
                                     }
                                 }
                                 
-                                await this.loadTableData(tableName);
+                                await this.loadTableData(currentTable);
                                 
                                 if (failCount === 0) {
                                     vscode.window.showInformationMessage(`${successCount} row(s) deleted successfully!`);
@@ -131,13 +146,13 @@ export class TableViewer {
                             }
                             break;
                         case 'update':
-                            await this.updateRow(tableName, message.row, message.changes);
+                            await this.updateRow(currentTable, message.row, message.changes);
                             break;
                         case 'insert':
-                            await this.insertRow(tableName, message.row);
+                            await this.insertRow(currentTable, message.row);
                             break;
                         case 'query':
-                            await this.loadTableData(tableName, message.search, message.limit, message.offset, message.sortColumn, message.sortDirection);
+                            await this.loadTableData(currentTable, message.search, message.limit, message.offset, message.sortColumn, message.sortDirection);
                             break;
                         case 'checkPendingChanges':
                             // Check if there are pending changes before refresh
