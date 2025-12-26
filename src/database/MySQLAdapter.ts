@@ -50,7 +50,10 @@ export class MySQLAdapter implements IDatabaseAdapter {
         const [rows] = await conn.query<mysql.RowDataPacket[]>(
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY schema_name"
         );
-        return rows.map(row => row.schema_name);
+        console.log('MySQL getDatabases result:', rows);
+        const databases = rows.map(row => row.SCHEMA_NAME || row.schema_name);
+        console.log('MySQL databases mapped:', databases);
+        return databases;
     }
 
     async getTables(database: string): Promise<string[]> {
@@ -59,17 +62,34 @@ export class MySQLAdapter implements IDatabaseAdapter {
             "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name",
             [database]
         );
-        return rows.map(row => row.table_name);
+        return rows.map(row => row.TABLE_NAME || row.table_name);
     }
 
     async createTable(database: string, tableName: string, columns: ColumnDefinition[]): Promise<void> {
         const conn = await this.getConnection(database);
         
+        const primaryKeys: string[] = [];
+        const uniqueKeys: string[] = [];
+        
         const columnDefs = columns.map(col => {
             let def = `\`${col.name}\` ${col.type}`;
             
-            // Handle constraints
-            const constraints = col.constraints.filter(c => c !== 'GENERATED ALWAYS AS IDENTITY');
+            // Separate PRIMARY KEY and UNIQUE to add as constraints later
+            const constraints = col.constraints.filter(c => {
+                if (c === 'GENERATED ALWAYS AS IDENTITY') return false;
+                
+                if (c === 'PRIMARY KEY') {
+                    primaryKeys.push(col.name);
+                    return false;
+                }
+                if (c === 'UNIQUE') {
+                    uniqueKeys.push(col.name);
+                    return false;
+                }
+                
+                return true;
+            });
+            
             if (constraints.length > 0) {
                 def += ' ' + constraints.join(' ');
             }
@@ -82,7 +102,26 @@ export class MySQLAdapter implements IDatabaseAdapter {
             return def;
         }).join(', ');
         
-        const query = `CREATE TABLE \`${tableName}\` (${columnDefs})`;
+        // Add PRIMARY KEY constraint with prefix length for TEXT/BLOB columns
+        let constraints = '';
+        if (primaryKeys.length > 0) {
+            const pkDefs = primaryKeys.map(pk => {
+                const col = columns.find(c => c.name === pk);
+                const isTextType = col && (col.type.toUpperCase().includes('TEXT') || col.type.toUpperCase().includes('BLOB'));
+                return isTextType ? `\`${pk}\`(255)` : `\`${pk}\``;
+            }).join(', ');
+            constraints += `, PRIMARY KEY (${pkDefs})`;
+        }
+        
+        // Add UNIQUE constraint with prefix length for TEXT/BLOB columns
+        uniqueKeys.forEach(uk => {
+            const col = columns.find(c => c.name === uk);
+            const isTextType = col && (col.type.toUpperCase().includes('TEXT') || col.type.toUpperCase().includes('BLOB'));
+            const ukDef = isTextType ? `\`${uk}\`(255)` : `\`${uk}\``;
+            constraints += `, UNIQUE (${ukDef})`;
+        });
+        
+        const query = `CREATE TABLE \`${tableName}\` (${columnDefs}${constraints})`;
         await conn.query(query);
     }
 
@@ -133,7 +172,16 @@ export class MySQLAdapter implements IDatabaseAdapter {
             ORDER BY ordinal_position
         `, [tableName, database]);
         
-        return rows as ColumnInfo[];
+        // Map MySQL uppercase column names to lowercase
+        return rows.map(row => ({
+            column_name: row.COLUMN_NAME || row.column_name,
+            data_type: row.DATA_TYPE || row.data_type,
+            is_nullable: row.IS_NULLABLE || row.is_nullable,
+            column_default: row.COLUMN_DEFAULT || row.column_default,
+            character_maximum_length: row.CHARACTER_MAXIMUM_LENGTH || row.character_maximum_length,
+            numeric_precision: row.NUMERIC_PRECISION || row.numeric_precision,
+            numeric_scale: row.NUMERIC_SCALE || row.numeric_scale
+        })) as ColumnInfo[];
     }
 
     async getPrimaryKeys(database: string, tableName: string): Promise<string[]> {
@@ -147,7 +195,7 @@ export class MySQLAdapter implements IDatabaseAdapter {
             ORDER BY ordinal_position
         `, [database, tableName]);
         
-        return rows.map(row => row.column_name);
+        return rows.map(row => row.COLUMN_NAME || row.column_name);
     }
 
     async getUniqueKeys(database: string, tableName: string): Promise<string[]> {
@@ -163,7 +211,7 @@ export class MySQLAdapter implements IDatabaseAdapter {
             AND tc.table_name = ?
         `, [database, tableName]);
         
-        return rows.map(row => row.column_name);
+        return rows.map(row => row.COLUMN_NAME || row.column_name);
     }
 
     async query(database: string, query: string, params?: any[]): Promise<any> {
