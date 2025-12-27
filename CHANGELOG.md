@@ -1,5 +1,10 @@
 # Change Log
 
+## [1.0.1] - 27-12-2025
+
+### Fixed
+- Corrected extension naming consistency
+
 ## [1.0.0] - 26-12-2025
 
 ### Added

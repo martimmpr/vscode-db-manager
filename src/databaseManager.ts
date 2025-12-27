@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { Connection, DatabaseItem } from './types';
 import { DatabaseAdapterFactory, ColumnDefinition } from './database';
 
-export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
+export class DatabaseManager implements vscode.TreeDataProvider<DatabaseItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<DatabaseItem | undefined | null | void> = new vscode.EventEmitter<DatabaseItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<DatabaseItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
@@ -11,7 +11,7 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
-        vscode.window.registerTreeDataProvider('databaseExplorer', this);
+        vscode.window.registerTreeDataProvider('databaseManager', this);
         this.loadConnections();
     }
 
@@ -127,7 +127,7 @@ export class DatabaseExplorer implements vscode.TreeDataProvider<DatabaseItem> {
         } else if (element.type === 'table') {
             treeItem.contextValue = 'table';
             treeItem.command = {
-                command: 'databaseExplorer.openTable',
+                command: 'databaseManager.openTable',
                 title: 'Open Table',
                 arguments: [element]
             };

@@ -1,16 +1,16 @@
 import * as vscode from 'vscode';
-import { DatabaseExplorer } from './databaseExplorer';
+import { DatabaseManager } from './databaseManager';
 import { TableViewer } from './tableViewer';
 import { SqlQueryRunner } from './sqlQueryRunner';
 import { Connection } from './types';
 import { DatabaseAdapterFactory, DatabaseDetector } from './database';
 
 export function activate(context: vscode.ExtensionContext) {
-    const databaseExplorer = new DatabaseExplorer(context);
+    const databaseManager = new DatabaseManager(context);
     const tableViewer = new TableViewer(context);
     const sqlQueryRunner = new SqlQueryRunner(context);
 
-    let addConnection = vscode.commands.registerCommand('databaseExplorer.addConnection', async () => {
+    let addConnection = vscode.commands.registerCommand('databaseManager.addConnection', async () => {
         const name = await vscode.window.showInputBox({
             prompt: 'Enter connection name',
             placeHolder: 'My Database'
@@ -91,7 +91,7 @@ export function activate(context: vscode.ExtensionContext) {
                 await adapter.testConnection();
                 await adapter.close();
 
-                await databaseExplorer.addConnection(connection);
+                await databaseManager.addConnection(connection);
                 vscode.window.showInformationMessage(
                     `${detectedType} connection "${name}" added successfully!`
                 );
@@ -103,11 +103,11 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
 
-    let refreshConnection = vscode.commands.registerCommand('databaseExplorer.refreshConnection', async (item: any) => {
+    let refreshConnection = vscode.commands.registerCommand('databaseManager.refreshConnection', async (item: any) => {
         if (!item?.connection) return;
         
         try {
-            databaseExplorer.refreshConnection(item.connection);
+            databaseManager.refreshConnection(item.connection);
             vscode.window.showInformationMessage(`Connection "${item.connection.name}" refreshed successfully!`);
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -115,7 +115,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let filterDatabases = vscode.commands.registerCommand('databaseExplorer.filterDatabases', async (item: any) => {
+    let filterDatabases = vscode.commands.registerCommand('databaseManager.filterDatabases', async (item: any) => {
         if (!item?.connection) return;
 
         try {
@@ -136,7 +136,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             quickPick.onDidAccept(async () => {
                 const selectedDatabases = quickPick.selectedItems.map(item => item.label);
-                await databaseExplorer.updateDatabaseFilter(item.connection, selectedDatabases);
+                await databaseManager.updateDatabaseFilter(item.connection, selectedDatabases);
                 quickPick.dispose();
             });
 
@@ -147,7 +147,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let editConnection = vscode.commands.registerCommand('databaseExplorer.editConnection', async (item: any) => {
+    let editConnection = vscode.commands.registerCommand('databaseManager.editConnection', async (item: any) => {
         if (!item?.connection) return;
 
         const name = await vscode.window.showInputBox({
@@ -229,7 +229,7 @@ export function activate(context: vscode.ExtensionContext) {
                 await adapter.testConnection();
                 await adapter.close();
 
-                await databaseExplorer.editConnection(item.connection, newConnection);
+                await databaseManager.editConnection(item.connection, newConnection);
                 vscode.window.showInformationMessage(
                     `${detectedType} connection "${name}" updated successfully!`
                 );
@@ -240,7 +240,7 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
 
-    let removeConnection = vscode.commands.registerCommand('databaseExplorer.removeConnection', async (item: any) => {
+    let removeConnection = vscode.commands.registerCommand('databaseManager.removeConnection', async (item: any) => {
         if (!item?.connection) return;
 
         const answer = await vscode.window.showWarningMessage(
@@ -250,12 +250,12 @@ export function activate(context: vscode.ExtensionContext) {
         );
 
         if (answer === 'Yes') {
-            await databaseExplorer.removeConnection(item.connection);
+            await databaseManager.removeConnection(item.connection);
             vscode.window.showInformationMessage('Connection removed successfully!');
         }
     });
 
-    let openTable = vscode.commands.registerCommand('databaseExplorer.openTable', async (item: any) => {
+    let openTable = vscode.commands.registerCommand('databaseManager.openTable', async (item: any) => {
         if (!item?.connection || !item?.database || !item?.table) {
             vscode.window.showErrorMessage('Invalid table item');
             return;
@@ -264,7 +264,7 @@ export function activate(context: vscode.ExtensionContext) {
         await tableViewer.openTable(item.connection, item.database, item.table);
     });
 
-    let addTable = vscode.commands.registerCommand('databaseExplorer.addTable', async (item: any) => {
+    let addTable = vscode.commands.registerCommand('databaseManager.addTable', async (item: any) => {
         if (!item?.connection || !item?.database) return;
 
         const tableName = await vscode.window.showInputBox({
@@ -355,7 +355,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         try {
-            await databaseExplorer.createTable(item.connection, item.database, tableName, columns);
+            await databaseManager.createTable(item.connection, item.database, tableName, columns);
             vscode.window.showInformationMessage(`Table "${tableName}" created successfully!`);
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -363,11 +363,11 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let refreshDatabase = vscode.commands.registerCommand('databaseExplorer.refreshDatabase', async (item: any) => {
+    let refreshDatabase = vscode.commands.registerCommand('databaseManager.refreshDatabase', async (item: any) => {
         if (!item?.connection || !item?.database) return;
         
         try {
-            await databaseExplorer.refreshDatabase(item.connection, item.database);
+            await databaseManager.refreshDatabase(item.connection, item.database);
             vscode.window.showInformationMessage(`Database "${item.database}" refreshed successfully!`);
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -375,7 +375,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let filterTables = vscode.commands.registerCommand('databaseExplorer.filterTables', async (item: any) => {
+    let filterTables = vscode.commands.registerCommand('databaseManager.filterTables', async (item: any) => {
         if (!item?.connection || !item?.database) return;
 
         try {
@@ -397,7 +397,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             quickPick.onDidAccept(async () => {
                 const selectedTables = quickPick.selectedItems.map(item => item.label);
-                await databaseExplorer.updateTableFilter(item.connection, item.database, selectedTables);
+                await databaseManager.updateTableFilter(item.connection, item.database, selectedTables);
                 quickPick.dispose();
             });
 
@@ -408,7 +408,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let editTable = vscode.commands.registerCommand('databaseExplorer.editTable', async (item: any) => {
+    let editTable = vscode.commands.registerCommand('databaseManager.editTable', async (item: any) => {
         if (!item?.connection || !item?.database || !item?.table) return;
 
         // Build options based on database type
@@ -440,7 +440,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (!newTableName || newTableName === item.table) return;
 
             try {
-                await databaseExplorer.renameTable(
+                await databaseManager.renameTable(
                     item.connection,
                     item.database,
                     item.table,
@@ -498,7 +498,7 @@ export function activate(context: vscode.ExtensionContext) {
                     afterColumn = selectedColumn.label;
                 }
 
-                await databaseExplorer.reorderColumn(
+                await databaseManager.reorderColumn(
                     item.connection,
                     item.database,
                     item.table,
@@ -542,7 +542,7 @@ export function activate(context: vscode.ExtensionContext) {
             );
 
             try {
-                await databaseExplorer.addColumnToTable(
+                await databaseManager.addColumnToTable(
                     item.connection, 
                     item.database, 
                     item.table, 
@@ -580,7 +580,7 @@ export function activate(context: vscode.ExtensionContext) {
                 );
 
                 if (answer === 'Yes') {
-                    await databaseExplorer.removeColumnFromTable(
+                    await databaseManager.removeColumnFromTable(
                         item.connection,
                         item.database,
                         item.table,
@@ -595,7 +595,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let deleteTable = vscode.commands.registerCommand('databaseExplorer.deleteTable', async (item: any) => {
+    let deleteTable = vscode.commands.registerCommand('databaseManager.deleteTable', async (item: any) => {
         if (!item?.connection || !item?.database || !item?.table) return;
 
         const answer = await vscode.window.showWarningMessage(
@@ -606,7 +606,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (answer === 'Yes') {
             try {
-                await databaseExplorer.deleteTable(item.connection, item.database, item.table);
+                await databaseManager.deleteTable(item.connection, item.database, item.table);
                 vscode.window.showInformationMessage(`Table "${item.table}" deleted successfully!`);
             } catch (error: unknown) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -615,7 +615,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let exportDatabase = vscode.commands.registerCommand('databaseExplorer.exportDatabase', async (item: any) => {
+    let exportDatabase = vscode.commands.registerCommand('databaseManager.exportDatabase', async (item: any) => {
         if (!item?.connection || !item?.database) return;
 
         const includeDataChoice = await vscode.window.showQuickPick(
@@ -637,7 +637,7 @@ export function activate(context: vscode.ExtensionContext) {
         }, async (progress) => {
             try {
                 progress.report({ message: 'Generating SQL export...' });
-                const sql = await databaseExplorer.exportDatabase(item.connection, item.database, includeDataChoice.value);
+                const sql = await databaseManager.exportDatabase(item.connection, item.database, includeDataChoice.value);
                 
                 progress.report({ message: 'Saving file...' });
                 
@@ -659,7 +659,7 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
 
-    let openTerminal = vscode.commands.registerCommand('databaseExplorer.openTerminal', async (item: any) => {
+    let openTerminal = vscode.commands.registerCommand('databaseManager.openTerminal', async (item: any) => {
         if (!item?.connection || !item?.database) return;
 
         try {
