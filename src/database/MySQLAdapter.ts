@@ -121,7 +121,7 @@ export class MySQLAdapter implements IDatabaseAdapter {
             constraints += `, UNIQUE (${ukDef})`;
         });
         
-        const query = `CREATE TABLE \`${tableName}\` (${columnDefs}${constraints})`;
+        const query = `CREATE TABLE IF NOT EXISTS \`${tableName}\` (${columnDefs}${constraints})`;
         await conn.query(query);
     }
 
@@ -138,17 +138,21 @@ export class MySQLAdapter implements IDatabaseAdapter {
     async addColumn(database: string, tableName: string, columnName: string, columnType: string, constraints: string[]): Promise<void> {
         const conn = await this.getConnection(database);
         
-        let alterQuery = `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${columnType}`;
-        
-        if (constraints.includes('NOT NULL')) {
-            alterQuery += ' NOT NULL';
+        // Check if column exists
+        const [colRows] = await conn.query(
+            `SELECT 1 FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?`,
+            [database, tableName, columnName]
+        );
+        if (Array.isArray(colRows) && colRows.length === 0) {
+            let alterQuery = `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${columnType}`;
+            if (constraints.includes('NOT NULL')) {
+                alterQuery += ' NOT NULL';
+            }
+            if (constraints.includes('UNIQUE')) {
+                alterQuery += ' UNIQUE';
+            }
+            await conn.query(alterQuery);
         }
-        
-        if (constraints.includes('UNIQUE')) {
-            alterQuery += ' UNIQUE';
-        }
-        
-        await conn.query(alterQuery);
     }
 
     async removeColumn(database: string, tableName: string, columnName: string): Promise<void> {

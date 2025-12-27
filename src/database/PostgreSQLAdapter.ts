@@ -71,7 +71,7 @@ export class PostgreSQLAdapter implements IDatabaseAdapter {
             return `"${col.name}" ${col.type} ${constraints}`.trim();
         }).join(', ');
         
-        const query = `CREATE TABLE "${tableName}" (${columnDefs})`;
+        const query = `CREATE TABLE IF NOT EXISTS "${tableName}" (${columnDefs})`;
         await client.query(query);
     }
 
@@ -88,17 +88,21 @@ export class PostgreSQLAdapter implements IDatabaseAdapter {
     async addColumn(database: string, tableName: string, columnName: string, columnType: string, constraints: string[]): Promise<void> {
         const client = await this.getClient(database);
         
-        let alterQuery = `ALTER TABLE "${tableName}" ADD COLUMN "${columnName}" ${columnType}`;
-        
-        if (constraints.includes('NOT NULL')) {
-            alterQuery += ' NOT NULL';
+        // Check if column exists
+        const colCheck = await client.query(
+            `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2 AND table_schema = 'public'`,
+            [tableName, columnName]
+        );
+        if (colCheck.rowCount === 0) {
+            let alterQuery = `ALTER TABLE "${tableName}" ADD COLUMN "${columnName}" ${columnType}`;
+            if (constraints.includes('NOT NULL')) {
+                alterQuery += ' NOT NULL';
+            }
+            if (constraints.includes('UNIQUE')) {
+                alterQuery += ' UNIQUE';
+            }
+            await client.query(alterQuery);
         }
-        
-        if (constraints.includes('UNIQUE')) {
-            alterQuery += ' UNIQUE';
-        }
-        
-        await client.query(alterQuery);
     }
 
     async removeColumn(database: string, tableName: string, columnName: string): Promise<void> {

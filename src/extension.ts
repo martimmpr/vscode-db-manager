@@ -3,6 +3,7 @@ import { DatabaseManager } from './databaseManager';
 import { TableViewer } from './tableViewer';
 import { SqlQueryRunner } from './sqlQueryRunner';
 import { ConnectionEditor } from './connectionEditor';
+import { TableEditor } from './tableEditor';
 import { Connection } from './types';
 import { DatabaseAdapterFactory, DatabaseDetector } from './database';
 
@@ -11,6 +12,7 @@ export function activate(context: vscode.ExtensionContext) {
     const tableViewer = new TableViewer(context);
     const sqlQueryRunner = new SqlQueryRunner(context);
     const connectionEditor = new ConnectionEditor(context);
+    const tableEditor = new TableEditor(context);
 
     let addConnection = vscode.commands.registerCommand('databaseManager.addConnection', async () => {
         const connection = await connectionEditor.openEditor();
@@ -107,99 +109,15 @@ export function activate(context: vscode.ExtensionContext) {
     let addTable = vscode.commands.registerCommand('databaseManager.addTable', async (item: any) => {
         if (!item?.connection || !item?.database) return;
 
-        const tableName = await vscode.window.showInputBox({
-            prompt: 'Enter table name',
-            placeHolder: 'my_table'
+        const result = await tableEditor.openEditor({
+            mode: 'create',
+            connection: item.connection,
+            database: item.database
         });
 
-        if (!tableName) return;
-
-        const columns: Array<{name: string, type: string, constraints: string[]}> = [];
-        let addingColumns = true;
-        let cancelled = false;
-
-        while (addingColumns && !cancelled) {
-            const columnName = await vscode.window.showInputBox({
-                prompt: `Enter column name (leave empty to finish) - Table: ${tableName}`,
-                placeHolder: 'column_name'
-            });
-
-            // If user presses ESC or closes, columnName will be undefined
-            if (columnName === undefined) {
-                // User cancelled - abort the whole operation
-                cancelled = true;
-                break;
-            }
-
-            // If empty string, user wants to finish adding columns
-            if (columnName === '') {
-                addingColumns = false;
-                break;
-            }
-
-            const columnType = await vscode.window.showQuickPick([
-                'bigint', 'bigserial', 'bit', 'boolean', 'char', 'character varying', 
-                'date', 'double precision', 'integer', 'json', 'jsonb', 'numeric',
-                'real', 'serial', 'smallint', 'smallserial', 'text', 
-                'timestamp with time zone', 'timestamp without time zone', 'uuid'
-            ], {
-                placeHolder: 'Select column type'
-            });
-
-            if (!columnType) {
-                // User cancelled
-                cancelled = true;
-                break;
-            }
-
-            const constraints = await vscode.window.showQuickPick(
-                [
-                    { label: 'PRIMARY KEY', picked: false },
-                    { label: 'NOT NULL', picked: false },
-                    { label: 'UNIQUE', picked: false },
-                    { label: 'AUTO INCREMENT', picked: false }
-                ],
-                {
-                    canPickMany: true,
-                    placeHolder: 'Select constraints (optional, press ESC to skip)'
-                }
-            );
-
-            // If constraints is undefined, user pressed ESC
-            if (constraints === undefined) {
-                cancelled = true;
-                break;
-            }
-
-            const constraintStrings = constraints.map(c => {
-                if (c.label === 'AUTO INCREMENT') {
-                    return 'GENERATED ALWAYS AS IDENTITY';
-                }
-                return c.label;
-            });
-
-            columns.push({
-                name: columnName,
-                type: columnType,
-                constraints: constraintStrings
-            });
-        }
-
-        // If cancelled or no columns added, abort
-        if (cancelled) {
-            return;
-        }
-
-        if (columns.length === 0) {
-            return;
-        }
-
-        try {
-            await databaseManager.createTable(item.connection, item.database, tableName, columns);
-            vscode.window.showInformationMessage(`Table "${tableName}" created successfully!`);
-        } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            vscode.window.showErrorMessage(`Failed to create table: ${errorMessage}`);
+        if (result) {
+            await databaseManager.createTable(item.connection, item.database, result.tableName, result.columns);
+            vscode.window.showInformationMessage(`Table "${result.tableName}" created successfully!`);
         }
     });
 
@@ -255,13 +173,9 @@ export function activate(context: vscode.ExtensionContext) {
         const options = [
             { label: 'Rename Table', value: 'rename' },
             { label: 'Add Column', value: 'add' },
+            { label: 'Edit Column', value: 'edit' },
             { label: 'Remove Column', value: 'remove' }
         ];
-
-        // Only add "Reorder Columns" option for PostgreSQL
-        if (item.connection.type === 'PostgreSQL') {
-            options.push({ label: 'Reorder Columns', value: 'reorder' });
-        }
 
         const action = await vscode.window.showQuickPick(options, {
             placeHolder: `Edit table "${item.table}"`
@@ -270,130 +184,78 @@ export function activate(context: vscode.ExtensionContext) {
         if (!action) return;
 
         if (action.value === 'rename') {
-            // Rename table
-            const newTableName = await vscode.window.showInputBox({
-                prompt: 'Enter new table name',
-                value: item.table,
-                placeHolder: 'new_table_name'
+            const result = await tableEditor.openEditor({
+                mode: 'rename',
+                connection: item.connection,
+                database: item.database,
+                tableName: item.table
             });
 
-            if (!newTableName || newTableName === item.table) return;
-
-            try {
+            if (result) {
                 await databaseManager.renameTable(
                     item.connection,
                     item.database,
                     item.table,
-                    newTableName
+                    result.newTableName
                 );
                 
                 // Update the webview if the table is currently open
-                await tableViewer.renameCurrentTable(newTableName);
+                await tableViewer.renameCurrentTable(result.newTableName);
                 
-                vscode.window.showInformationMessage(`Table renamed from "${item.table}" to "${newTableName}" successfully!`);
-            } catch (error: unknown) {
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-                vscode.window.showErrorMessage(`Failed to rename table: ${errorMessage}`);
+                vscode.window.showInformationMessage(`Table renamed from "${item.table}" to "${result.newTableName}" successfully!`);
             }
-        } else if (action.value === 'reorder') {
-            // Reorder columns
+        } else if (action.value === 'add') {
+            const result = await tableEditor.openEditor({
+                mode: 'addColumn',
+                connection: item.connection,
+                database: item.database,
+                tableName: item.table
+            });
+
+            if (result) {
+                await databaseManager.addColumnToTable(
+                    item.connection, 
+                    item.database, 
+                    item.table, 
+                    result.columnName, 
+                    result.columnType,
+                    result.constraints
+                );
+                vscode.window.showInformationMessage(`Column "${result.columnName}" added to table "${item.table}" successfully!`);
+            }
+        } else if (action.value === 'edit') {
+            // Edit column - first get list of columns
             try {
                 const adapter = DatabaseAdapterFactory.createAdapter(item.connection);
                 const columnInfos = await adapter.getColumns(item.database, item.table);
                 await adapter.close();
-
-                if (columnInfos.length < 2) {
-                    vscode.window.showInformationMessage('Table must have at least 2 columns to reorder.');
-                    return;
-                }
 
                 const columns = columnInfos.map(row => ({
                     label: row.column_name,
                     description: `${row.data_type} ${row.is_nullable === 'NO' ? '(NOT NULL)' : ''}`
                 }));
 
-                const columnToMove = await vscode.window.showQuickPick(columns, {
-                    placeHolder: 'Select column to move'
+                const columnToEdit = await vscode.window.showQuickPick(columns, {
+                    placeHolder: 'Select column to edit'
                 });
 
-                if (!columnToMove) return;
+                if (!columnToEdit) return;
 
-                const direction = await vscode.window.showQuickPick([
-                    { label: 'Move to First', value: 'first' },
-                    { label: 'Move After...', value: 'after' }
-                ], {
-                    placeHolder: `Move "${columnToMove.label}"`
+                const result = await tableEditor.openEditor({
+                    mode: 'editColumn',
+                    connection: item.connection,
+                    database: item.database,
+                    tableName: item.table,
+                    columnName: columnToEdit.label,
+                    existingColumns: columnInfos
                 });
 
-                if (!direction) return;
-
-                let afterColumn: string | undefined;
-                if (direction.value === 'after') {
-                    const otherColumns = columns.filter(c => c.label !== columnToMove.label);
-                    const selectedColumn = await vscode.window.showQuickPick(otherColumns, {
-                        placeHolder: `Move "${columnToMove.label}" after...`
-                    });
-
-                    if (!selectedColumn) return;
-                    afterColumn = selectedColumn.label;
+                if (result) {
+                    vscode.window.showInformationMessage(`Column "${result.columnName}" updated in table "${item.table}" successfully!`);
                 }
-
-                await databaseManager.reorderColumn(
-                    item.connection,
-                    item.database,
-                    item.table,
-                    columnToMove.label,
-                    afterColumn
-                );
-                vscode.window.showInformationMessage(`Column "${columnToMove.label}" reordered successfully!`);
             } catch (error: unknown) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-                vscode.window.showErrorMessage(`Failed to reorder column: ${errorMessage}`);
-            }
-        } else if (action.value === 'add') {
-            // Add column
-            const columnName = await vscode.window.showInputBox({
-                prompt: 'Enter column name',
-                placeHolder: 'column_name'
-            });
-
-            if (!columnName) return;
-
-            const columnType = await vscode.window.showQuickPick([
-                'bigint', 'bigserial', 'bit', 'boolean', 'char', 'character varying', 
-                'date', 'double precision', 'integer', 'json', 'jsonb', 'numeric',
-                'real', 'serial', 'smallint', 'smallserial', 'text', 
-                'timestamp with time zone', 'timestamp without time zone', 'uuid'
-            ], {
-                placeHolder: 'Select column type'
-            });
-
-            if (!columnType) return;
-
-            const constraints = await vscode.window.showQuickPick(
-                [
-                    { label: 'NOT NULL', picked: false },
-                    { label: 'UNIQUE', picked: false }
-                ],
-                {
-                    canPickMany: true,
-                    placeHolder: 'Select constraints (optional)'
-                }
-            );
-
-            try {
-                await databaseManager.addColumnToTable(
-                    item.connection, 
-                    item.database, 
-                    item.table, 
-                    columnName, 
-                    columnType,
-                    constraints?.map(c => c.label) || []
-                );
-                vscode.window.showInformationMessage(`Column "${columnName}" added to table "${item.table}" successfully!`);
-            } catch (error: unknown) {
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-                vscode.window.showErrorMessage(`Failed to add column: ${errorMessage}`);
+                vscode.window.showErrorMessage(`Failed to edit column: ${errorMessage}`);
             }
         } else if (action.value === 'remove') {
             // Remove column - first get list of columns
