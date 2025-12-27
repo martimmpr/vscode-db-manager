@@ -2,7 +2,7 @@
   "name": "vscode-db-manager",
   "displayName": "Database Manager",
   "description": "PostgreSQL + MySQL + MariaDB Database Manager for VSCode",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "martimmpr",
   "author": {
     "name": "Martim 'martimmpr' Ribeiro"
@@ -38,83 +38,83 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "database-explorer",
-          "title": "Database Explorer",
+          "id": "database-manager",
+          "title": "Database Manager",
           "icon": "$(database)"
         }
       ]
     },
     "views": {
-      "database-explorer": [
+      "database-manager": [
         {
-          "id": "databaseExplorer",
+          "id": "databaseManager",
           "name": "Connections"
         }
       ]
     },
     "commands": [
       {
-        "command": "databaseExplorer.addConnection",
+        "command": "databaseManager.addConnection",
         "title": "Add Connection",
         "icon": "$(add)"
       },
       {
-        "command": "databaseExplorer.refreshConnection",
+        "command": "databaseManager.refreshConnection",
         "title": "Refresh Connection",
         "icon": "$(refresh)"
       },
       {
-        "command": "databaseExplorer.openTerminal",
+        "command": "databaseManager.openTerminal",
         "title": "Open Terminal",
         "icon": "$(terminal)"
       },
       {
-        "command": "databaseExplorer.filterDatabases",
+        "command": "databaseManager.filterDatabases",
         "title": "Filter Databases",
         "icon": "$(filter)"
       },
       {
-        "command": "databaseExplorer.editConnection",
+        "command": "databaseManager.editConnection",
         "title": "Edit Connection",
         "icon": "$(edit)"
       },
       {
-        "command": "databaseExplorer.removeConnection",
+        "command": "databaseManager.removeConnection",
         "title": "Remove Connection",
         "icon": "$(trash)"
       },
       {
-        "command": "databaseExplorer.openTable",
+        "command": "databaseManager.openTable",
         "title": "Open Table",
         "icon": "$(table)"
       },
       {
-        "command": "databaseExplorer.addTable",
+        "command": "databaseManager.addTable",
         "title": "Add Table",
         "icon": "$(add)"
       },
       {
-        "command": "databaseExplorer.refreshDatabase",
+        "command": "databaseManager.refreshDatabase",
         "title": "Refresh Database",
         "icon": "$(refresh)"
       },
       {
-        "command": "databaseExplorer.filterTables",
+        "command": "databaseManager.filterTables",
         "title": "Filter Tables",
         "icon": "$(filter)"
       },
       {
-        "command": "databaseExplorer.editTable",
+        "command": "databaseManager.editTable",
         "title": "Edit Table",
         "icon": "$(edit)"
       },
       {
-        "command": "databaseExplorer.deleteTable",
+        "command": "databaseManager.deleteTable",
         "title": "Delete Table",
         "icon": "$(trash)"
       },
       {
-        "command": "databaseExplorer.exportDatabase",
+        "command": "databaseManager.exportDatabase",
         "title": "Export Database",
         "icon": "$(export)"
       },
@@ -143,57 +143,57 @@
     "menus": {
       "view/item/context": [
         {
-          "command": "databaseExplorer.refreshConnection",
+          "command": "databaseManager.refreshConnection",
           "when": "viewItem == databaseConnection",
           "group": "inline@0"
         },
         {
-          "command": "databaseExplorer.filterDatabases",
+          "command": "databaseManager.filterDatabases",
           "when": "viewItem == databaseConnection",
           "group": "inline@1"
         },
         {
-          "command": "databaseExplorer.editConnection",
+          "command": "databaseManager.editConnection",
           "when": "viewItem == databaseConnection",
           "group": "inline@2"
         },
         {
-          "command": "databaseExplorer.removeConnection",
+          "command": "databaseManager.removeConnection",
           "when": "viewItem == databaseConnection",
           "group": "inline@3"
         },
         {
-          "command": "databaseExplorer.addTable",
+          "command": "databaseManager.addTable",
           "when": "viewItem == database",
           "group": "inline@0"
         },
         {
-          "command": "databaseExplorer.refreshDatabase",
+          "command": "databaseManager.refreshDatabase",
           "when": "viewItem == database",
           "group": "inline@1"
         },
         {
-          "command": "databaseExplorer.filterTables",
+          "command": "databaseManager.filterTables",
           "when": "viewItem == database",
           "group": "inline@2"
         },
         {
-          "command": "databaseExplorer.openTerminal",
+          "command": "databaseManager.openTerminal",
           "when": "viewItem == database",
           "group": "inline@3"
         },
         {
-          "command": "databaseExplorer.exportDatabase",
+          "command": "databaseManager.exportDatabase",
           "when": "viewItem == database",
           "group": "inline@4"
         },
         {
-          "command": "databaseExplorer.editTable",
+          "command": "databaseManager.editTable",
           "when": "viewItem == table",
           "group": "inline@0"
         },
         {
-          "command": "databaseExplorer.deleteTable",
+          "command": "databaseManager.deleteTable",
           "when": "viewItem == table",
           "group": "inline@1"
         }
@@ -207,8 +207,8 @@
       ],
       "view/title": [
         {
-          "command": "databaseExplorer.addConnection",
-          "when": "view == databaseExplorer",
+          "command": "databaseManager.addConnection",
+          "when": "view == databaseManager",
           "group": "navigation"
         }
       ]
