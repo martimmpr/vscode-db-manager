@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { DatabaseManager } from './databaseManager';
 import { TableViewer } from './tableViewer';
 import { SqlQueryRunner } from './sqlQueryRunner';
+import { ConnectionEditor } from './connectionEditor';
 import { Connection } from './types';
 import { DatabaseAdapterFactory, DatabaseDetector } from './database';
 
@@ -9,98 +10,17 @@ export function activate(context: vscode.ExtensionContext) {
     const databaseManager = new DatabaseManager(context);
     const tableViewer = new TableViewer(context);
     const sqlQueryRunner = new SqlQueryRunner(context);
+    const connectionEditor = new ConnectionEditor(context);
 
     let addConnection = vscode.commands.registerCommand('databaseManager.addConnection', async () => {
-        const name = await vscode.window.showInputBox({
-            prompt: 'Enter connection name',
-            placeHolder: 'My Database'
-        });
-
-        if (!name) return;
-
-        const host = await vscode.window.showInputBox({
-            prompt: 'Enter host',
-            placeHolder: 'localhost',
-            value: 'localhost'
-        });
-
-        if (!host) return;
-
-        const port = await vscode.window.showInputBox({
-            prompt: 'Enter port',
-            placeHolder: '5432 (PostgreSQL) or 3306 (MySQL/MariaDB)',
-            value: '5432'
-        });
-
-        if (!port) return;
-
-        const username = await vscode.window.showInputBox({
-            prompt: 'Enter username',
-            placeHolder: 'root'
-        });
-
-        if (!username) return;
-
-        const password = await vscode.window.showInputBox({
-            prompt: 'Enter password',
-            password: true
-        });
-
-        if (!password) {
-            vscode.window.showErrorMessage('Password is required!');
-            return;
+        const connection = await connectionEditor.openEditor();
+        
+        if (connection) {
+            await databaseManager.addConnection(connection);
+            vscode.window.showInformationMessage(
+                `${connection.type} connection "${connection.name}" added successfully!`
+            );
         }
-
-        // Show progress while detecting database type
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: `Connecting to ${name}...`,
-            cancellable: false
-        }, async (progress) => {
-            try {
-                progress.report({ message: 'Detecting database type...' });
-                
-                // Attempt to detect database type
-                const detectedType = await DatabaseDetector.detectDatabaseType(
-                    host,
-                    parseInt(port),
-                    username.trim(),
-                    password
-                );
-
-                if (!detectedType) {
-                    vscode.window.showErrorMessage(
-                        'Could not detect database type or failed to connect. Please check your credentials and try again.'
-                    );
-                    return;
-                }
-
-                progress.report({ message: `Detected ${detectedType} database` });
-
-                const connection: Connection = {
-                    name,
-                    type: detectedType,
-                    host,
-                    port: parseInt(port),
-                    username: username.trim(),
-                    password
-                };
-
-                // Test connection one more time with the detected type
-                const adapter = DatabaseAdapterFactory.createAdapter(connection);
-                await adapter.testConnection();
-                await adapter.close();
-
-                await databaseManager.addConnection(connection);
-                vscode.window.showInformationMessage(
-                    `${detectedType} connection "${name}" added successfully!`
-                );
-            } catch (error: unknown) {
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-                console.error('Connection error:', errorMessage);
-                vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
-            }
-        });
     });
 
     let refreshConnection = vscode.commands.registerCommand('databaseManager.refreshConnection', async (item: any) => {
@@ -150,94 +70,14 @@ export function activate(context: vscode.ExtensionContext) {
     let editConnection = vscode.commands.registerCommand('databaseManager.editConnection', async (item: any) => {
         if (!item?.connection) return;
 
-        const name = await vscode.window.showInputBox({
-            prompt: 'Enter connection name',
-            value: item.connection.name
-        });
-
-        if (!name) return;
-
-        const host = await vscode.window.showInputBox({
-            prompt: 'Enter host',
-            value: item.connection.host
-        });
-
-        if (!host) return;
-
-        const port = await vscode.window.showInputBox({
-            prompt: 'Enter port',
-            value: item.connection.port.toString()
-        });
-
-        if (!port) return;
-
-        const username = await vscode.window.showInputBox({
-            prompt: 'Enter username',
-            value: item.connection.username
-        });
-
-        if (!username) return;
-
-        const password = await vscode.window.showInputBox({
-            prompt: 'Enter password',
-            password: true,
-            value: item.connection.password
-        });
-
-        if (!password) {
-            vscode.window.showErrorMessage('Password is required!');
-            return;
+        const updatedConnection = await connectionEditor.openEditor(item.connection);
+        
+        if (updatedConnection) {
+            await databaseManager.editConnection(item.connection, updatedConnection);
+            vscode.window.showInformationMessage(
+                `${updatedConnection.type} connection "${updatedConnection.name}" updated successfully!`
+            );
         }
-
-        // Show progress while detecting database type
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: `Updating connection ${name}...`,
-            cancellable: false
-        }, async (progress) => {
-            try {
-                progress.report({ message: 'Detecting database type...' });
-                
-                // Attempt to detect database type
-                const detectedType = await DatabaseDetector.detectDatabaseType(
-                    host,
-                    parseInt(port),
-                    username.trim(),
-                    password
-                );
-
-                if (!detectedType) {
-                    vscode.window.showErrorMessage(
-                        'Could not detect database type or failed to connect. Please check your credentials and try again.'
-                    );
-                    return;
-                }
-
-                progress.report({ message: `Detected ${detectedType} database` });
-
-                const newConnection: Connection = {
-                    name,
-                    type: detectedType,
-                    host,
-                    port: parseInt(port),
-                    username: username.trim(),
-                    password
-                };
-
-                // Test connection
-                const adapter = DatabaseAdapterFactory.createAdapter(newConnection);
-                await adapter.testConnection();
-                await adapter.close();
-
-                await databaseManager.editConnection(item.connection, newConnection);
-                vscode.window.showInformationMessage(
-                    `${detectedType} connection "${name}" updated successfully!`
-                );
-            } catch (error: unknown) {
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-                vscode.window.showErrorMessage(`Failed to update connection: ${errorMessage}`);
-            }
-        });
     });
 
     let removeConnection = vscode.commands.registerCommand('databaseManager.removeConnection', async (item: any) => {
