@@ -1,7 +1,22 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 
-export type DatabaseType = 'PostgreSQL' | 'MySQL' | 'MariaDB';
+export type DatabaseType = 'PostgreSQL' | 'MySQL' | 'MariaDB' | 'SQLite';
+
+export interface SSHConfig {
+    host: string;
+    port: number;
+    username: string;
+    password?: string;
+    privateKeyPath?: string;
+    passphrase?: string; 
+}
+
+export interface SQLiteConnectionParams {
+    filePath: string;       
+    useSSH: boolean;        
+    sshConfig?: SSHConfig;
+}
 
 export interface Connection {
     name: string;
@@ -12,6 +27,7 @@ export interface Connection {
     password: string;
     selectedDatabases?: string[];
     selectedTables?: { [database: string]: string[] };
+    sqlite?: SQLiteConnectionParams;
 }
 
 export class DatabaseItem extends vscode.TreeItem {
@@ -30,9 +46,9 @@ export class DatabaseItem extends vscode.TreeItem {
         
         switch (type) {
             case 'connection':
-                // Set icon based on database type using custom SVG logos
                 if (connection && extensionPath) {
                     const iconFolder = path.join(extensionPath, 'src', 'icons');
+                    
                     switch (connection.type) {
                         case 'PostgreSQL':
                             this.iconPath = path.join(iconFolder, 'postgresql.svg');
@@ -42,6 +58,9 @@ export class DatabaseItem extends vscode.TreeItem {
                             break;
                         case 'MariaDB':
                             this.iconPath = path.join(iconFolder, 'mariadb.svg');
+                            break;
+                        case 'SQLite':
+                            this.iconPath = path.join(iconFolder, 'sqlite.svg');
                             break;
                         default:
                             this.iconPath = new vscode.ThemeIcon('database');
