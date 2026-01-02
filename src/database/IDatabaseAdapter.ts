@@ -2,6 +2,7 @@ export interface ColumnDefinition {
     name: string;
     type: string;
     constraints: string[];
+    defaultValue?: string;
 }
 
 export interface ColumnInfo {
@@ -47,7 +48,10 @@ export interface IDatabaseAdapter {
     renameTable(database: string, oldTableName: string, newTableName: string): Promise<void>;
 
     // Add a column to a table
-    addColumn(database: string, tableName: string, columnName: string, columnType: string, constraints: string[]): Promise<void>;
+    addColumn(database: string, tableName: string, columnName: string, columnType: string, constraints: string[], defaultValue?: string): Promise<void>;
+
+    // Modify an existing column
+    modifyColumn(database: string, tableName: string, oldColumnName: string, newColumnName: string, columnType: string, constraints: string[], defaultValue?: string): Promise<void>;
 
     // Remove a column from a table
     removeColumn(database: string, tableName: string, columnName: string): Promise<void>;

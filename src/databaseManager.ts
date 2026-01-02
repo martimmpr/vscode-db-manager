@@ -279,12 +279,13 @@ export class DatabaseManager implements vscode.TreeDataProvider<DatabaseItem> {
         tableName: string, 
         columnName: string, 
         columnType: string,
-        constraints: string[]
+        constraints: string[],
+        defaultValue?: string
     ) {
         const adapter = DatabaseAdapterFactory.createAdapter(connection);
         
         try {
-            await adapter.addColumn(database, tableName, columnName, columnType, constraints);
+            await adapter.addColumn(database, tableName, columnName, columnType, constraints, defaultValue);
             await adapter.close();
             
             this._onDidChangeTreeData.fire();

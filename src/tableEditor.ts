@@ -13,6 +13,8 @@ interface EditorOptions {
     tableName?: string;
     columnName?: string;
     existingColumns?: ColumnInfo[];
+    uniqueKeys?: string[];
+    primaryKeys?: string[];
 }
 
 export class TableEditor {
@@ -135,7 +137,8 @@ export class TableEditor {
                         options.tableName!,
                         data.columnName,
                         data.columnType,
-                        data.constraints
+                        data.constraints,
+                        data.defaultValue
                     );
                     TableEditor.currentPanel?.webview.postMessage({
                         command: 'saveSuccess',
@@ -144,15 +147,14 @@ export class TableEditor {
                     break;
 
                 case 'editColumn':
-                    // For edit, we need to remove old column and add new one
-                    // This is a limitation but works for all databases
-                    await adapter.removeColumn(options.database, options.tableName!, options.columnName!);
-                    await adapter.addColumn(
+                    await adapter.modifyColumn(
                         options.database,
                         options.tableName!,
+                        options.columnName!,
                         data.columnName,
                         data.columnType,
-                        data.constraints
+                        data.constraints,
+                        data.defaultValue
                     );
                     TableEditor.currentPanel?.webview.postMessage({
                         command: 'saveSuccess',
@@ -504,6 +506,11 @@ export class TableEditor {
             </div>
 
             <div class="form-group">
+                <label for="defaultValue">Default Value (optional)</label>
+                <input type="text" id="defaultValue" name="defaultValue" placeholder="NULL, 0, 'text', CURRENT_TIMESTAMP" />
+            </div>
+
+            <div class="form-group">
                 <label>Constraints</label>
                 <div class="constraints-group">
                     <label class="checkbox-label">
@@ -535,6 +542,12 @@ export class TableEditor {
     private getEditColumnForm(options: EditorOptions, editSvg: string, closeSvg: string): string {
         const column = options.existingColumns?.find(c => c.column_name === options.columnName);
         const dataType = column?.data_type?.toUpperCase() || 'VARCHAR(255)';
+        const isUnique = options.uniqueKeys?.includes(options.columnName || '') || false;
+        const isPrimaryKey = options.primaryKeys?.includes(options.columnName || '') || false;
+        const defaultValue = column?.column_default || '';
+        
+        // Check for AUTO_INCREMENT in column_default or extra field
+        const isAutoIncrement = defaultValue.toLowerCase().includes('nextval') || defaultValue.toLowerCase().includes('auto_increment');
         
         return `
         <h1>Edit Column</h1>
@@ -564,10 +577,15 @@ export class TableEditor {
             </div>
 
             <div class="form-group">
+                <label for="defaultValue">Default Value (optional)</label>
+                <input type="text" id="defaultValue" name="defaultValue" value="${defaultValue}" placeholder="NULL, 0, 'text', CURRENT_TIMESTAMP" />
+            </div>
+
+            <div class="form-group">
                 <label>Constraints</label>
                 <div class="constraints-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" name="constraint" value="PRIMARY KEY" />
+                        <input type="checkbox" name="constraint" value="PRIMARY KEY" ${isPrimaryKey ? 'checked' : ''} />
                         Primary Key
                     </label>
                     <label class="checkbox-label">
@@ -575,11 +593,11 @@ export class TableEditor {
                         Not Null
                     </label>
                     <label class="checkbox-label">
-                        <input type="checkbox" name="constraint" value="UNIQUE" />
+                        <input type="checkbox" name="constraint" value="UNIQUE" ${isUnique ? 'checked' : ''} />
                         Unique
                     </label>
                     <label class="checkbox-label">
-                        <input type="checkbox" name="constraint" value="AUTO INCREMENT" />
+                        <input type="checkbox" name="constraint" value="AUTO INCREMENT" ${isAutoIncrement ? 'checked' : ''} />
                         Auto Increment
                     </label>
                 </div>
@@ -834,6 +852,7 @@ export class TableEditor {
             
             const columnName = document.getElementById('columnName').value.trim();
             const columnType = document.getElementById('columnType').value;
+            const defaultValue = document.getElementById('defaultValue')?.value.trim() || '';
             const constraintCheckboxes = document.querySelectorAll('input[name="constraint"]:checked');
             const constraints = Array.from(constraintCheckboxes).map(cb => {
                 if (cb.value === 'AUTO INCREMENT') {
@@ -849,7 +868,7 @@ export class TableEditor {
             
             vscode.postMessage({
                 command: 'save',
-                data: { columnName, columnType, constraints }
+                data: { columnName, columnType, constraints, defaultValue }
             });
         });
 

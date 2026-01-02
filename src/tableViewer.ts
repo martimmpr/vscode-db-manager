@@ -191,6 +191,19 @@ export class TableViewer {
         await this.loadTableData(newTableName);
     }
 
+    public async reloadCurrentTable() {
+        if (!TableViewer.currentPanel || !this.currentTableName) return;
+        await this.loadTableData(this.currentTableName);
+    }
+
+    public isTableOpen(connection: Connection, database: string, tableName: string): boolean {
+        if (!TableViewer.currentPanel || !this.currentTableName || !this.currentConnection || !this.currentDatabase) {
+            return false;
+        }
+        
+        return this.currentConnection.name === connection.name && this.currentDatabase === database && this.currentTableName === tableName;
+    }
+
     private async loadTableData(
         tableName: string, 
         search?: string, 

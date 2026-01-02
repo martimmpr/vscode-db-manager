@@ -213,14 +213,13 @@ export function activate(context: vscode.ExtensionContext) {
             });
 
             if (result) {
-                await databaseManager.addColumnToTable(
-                    item.connection, 
-                    item.database, 
-                    item.table, 
-                    result.columnName, 
-                    result.columnType,
-                    result.constraints
-                );
+                // Column added by tableEditor, just refresh the views
+                databaseManager.refresh();
+                
+                if (tableViewer.isTableOpen(item.connection, item.database, item.table)) {
+                    await tableViewer.reloadCurrentTable();
+                }
+                
                 vscode.window.showInformationMessage(`Column "${result.columnName}" added to table "${item.table}" successfully!`);
             }
         } else if (action.value === 'edit') {
@@ -228,6 +227,8 @@ export function activate(context: vscode.ExtensionContext) {
             try {
                 const adapter = DatabaseAdapterFactory.createAdapter(item.connection);
                 const columnInfos = await adapter.getColumns(item.database, item.table);
+                const uniqueKeys = await adapter.getUniqueKeys(item.database, item.table);
+                const primaryKeys = await adapter.getPrimaryKeys(item.database, item.table);
                 await adapter.close();
 
                 const columns = columnInfos.map(row => ({
@@ -247,10 +248,16 @@ export function activate(context: vscode.ExtensionContext) {
                     database: item.database,
                     tableName: item.table,
                     columnName: columnToEdit.label,
-                    existingColumns: columnInfos
+                    existingColumns: columnInfos,
+                    uniqueKeys: uniqueKeys,
+                    primaryKeys: primaryKeys
                 });
 
                 if (result) {
+                    if (tableViewer.isTableOpen(item.connection, item.database, item.table)) {
+                        await tableViewer.reloadCurrentTable();
+                    }
+                    
                     vscode.window.showInformationMessage(`Column "${result.columnName}" updated in table "${item.table}" successfully!`);
                 }
             } catch (error: unknown) {
@@ -288,6 +295,11 @@ export function activate(context: vscode.ExtensionContext) {
                         item.table,
                         columnToRemove.label
                     );
+                    
+                    if (tableViewer.isTableOpen(item.connection, item.database, item.table)) {
+                        await tableViewer.reloadCurrentTable();
+                    }
+                    
                     vscode.window.showInformationMessage(`Column "${columnToRemove.label}" removed from table "${item.table}" successfully!`);
                 }
             } catch (error: unknown) {
