@@ -192,15 +192,15 @@ export function activate(context: vscode.ExtensionContext) {
             });
 
             if (result) {
-                await databaseManager.renameTable(
-                    item.connection,
-                    item.database,
-                    item.table,
-                    result.newTableName
-                );
-                
                 // Update the webview if the table is currently open
-                await tableViewer.renameCurrentTable(result.newTableName);
+                const isOpen = tableViewer.isTableOpen(item.connection, item.database, item.table);
+                if (isOpen) {
+                    await tableViewer.updateTableNameBeforeRename(result.newTableName);
+                    await tableViewer.reloadCurrentTable();
+                }
+                
+                // Refresh the treeview to show the new table name
+                databaseManager.refresh();
                 
                 vscode.window.showInformationMessage(`Table renamed from "${item.table}" to "${result.newTableName}" successfully!`);
             }

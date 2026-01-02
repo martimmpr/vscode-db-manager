@@ -183,12 +183,11 @@ export class TableViewer {
         }
     }
 
-    public async renameCurrentTable(newTableName: string) {
+    public async updateTableNameBeforeRename(newTableName: string) {
         if (!TableViewer.currentPanel || !this.currentTableName) return;
         
         this.currentTableName = newTableName;
         TableViewer.currentPanel.title = newTableName;
-        await this.loadTableData(newTableName);
     }
 
     public async reloadCurrentTable() {
