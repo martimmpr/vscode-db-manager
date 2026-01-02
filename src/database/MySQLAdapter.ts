@@ -121,7 +121,7 @@ export class MySQLAdapter implements IDatabaseAdapter {
             constraints += `, UNIQUE (${ukDef})`;
         });
         
-        const query = `CREATE TABLE \`${tableName}\` (${columnDefs}${constraints})`;
+        const query = `CREATE TABLE IF NOT EXISTS \`${tableName}\` (${columnDefs}${constraints})`;
         await conn.query(query);
     }
 
@@ -135,20 +135,104 @@ export class MySQLAdapter implements IDatabaseAdapter {
         await conn.query(`RENAME TABLE \`${oldTableName}\` TO \`${newTableName}\``);
     }
 
-    async addColumn(database: string, tableName: string, columnName: string, columnType: string, constraints: string[]): Promise<void> {
+    async addColumn(database: string, tableName: string, columnName: string, columnType: string, constraints: string[], defaultValue?: string): Promise<void> {
         const conn = await this.getConnection(database);
         
         let alterQuery = `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${columnType}`;
         
+        // Add DEFAULT before constraints
+        if (defaultValue !== undefined && defaultValue !== '') {
+            // Handle special keywords and string values
+            if (['CURRENT_TIMESTAMP', 'NULL', 'TRUE', 'FALSE'].includes(defaultValue.toUpperCase())) {
+                alterQuery += ` DEFAULT ${defaultValue.toUpperCase()}`;
+            } else if (!isNaN(Number(defaultValue))) {
+                // Numeric value
+                alterQuery += ` DEFAULT ${defaultValue}`;
+            } else {
+                // String value - escape single quotes
+                alterQuery += ` DEFAULT '${defaultValue.replace(/'/g, "''")}'`;
+            }
+        }
+        
         if (constraints.includes('NOT NULL')) {
             alterQuery += ' NOT NULL';
         }
-        
         if (constraints.includes('UNIQUE')) {
             alterQuery += ' UNIQUE';
         }
+        if (constraints.includes('AUTO_INCREMENT') || constraints.includes('GENERATED ALWAYS AS IDENTITY')) {
+            alterQuery += ' AUTO_INCREMENT';
+        }
+        await conn.query(alterQuery);
+    }
+
+    async modifyColumn(database: string, tableName: string, oldColumnName: string, newColumnName: string, columnType: string, constraints: string[], defaultValue?: string): Promise<void> {
+        const conn = await this.getConnection(database);
+        
+        // Get existing constraints to compare
+        const existingPK = await this.getPrimaryKeys(database, tableName);
+        const existingUnique = await this.getUniqueKeys(database, tableName);
+        
+        const isPrimaryKey = constraints.includes('PRIMARY KEY');
+        const isUnique = constraints.includes('UNIQUE');
+        const isAutoIncrement = constraints.includes('AUTO_INCREMENT') || constraints.includes('GENERATED ALWAYS AS IDENTITY');
+        const isNotNull = constraints.includes('NOT NULL');
+        
+        const wasPrimaryKey = existingPK.includes(oldColumnName);
+        const wasUnique = existingUnique.includes(oldColumnName);
+        
+        // Build CHANGE COLUMN query (preserves data)
+        let alterQuery = `ALTER TABLE \`${tableName}\` CHANGE COLUMN \`${oldColumnName}\` \`${newColumnName}\` ${columnType}`;
+        
+        // Add DEFAULT before constraints
+        if (defaultValue !== undefined && defaultValue !== '' && !isAutoIncrement) {
+            if (['CURRENT_TIMESTAMP', 'NULL', 'TRUE', 'FALSE'].includes(defaultValue.toUpperCase())) {
+                alterQuery += ` DEFAULT ${defaultValue.toUpperCase()}`;
+            } else if (!isNaN(Number(defaultValue))) {
+                alterQuery += ` DEFAULT ${defaultValue}`;
+            } else {
+                alterQuery += ` DEFAULT '${defaultValue.replace(/'/g, "''")}'`;
+            }
+        }
+        
+        if (isNotNull) {
+            alterQuery += ' NOT NULL';
+        }
+        
+        if (isAutoIncrement) {
+            alterQuery += ' AUTO_INCREMENT';
+        }
         
         await conn.query(alterQuery);
+        
+        // Handle PRIMARY KEY constraint separately
+        if (isPrimaryKey && !wasPrimaryKey) {
+            // Drop existing PK if any
+            if (existingPK.length > 0) {
+                await conn.query(`ALTER TABLE \`${tableName}\` DROP PRIMARY KEY`);
+            }
+            // Add new PRIMARY KEY
+            await conn.query(`ALTER TABLE \`${tableName}\` ADD PRIMARY KEY (\`${newColumnName}\`)`);
+        } else if (!isPrimaryKey && wasPrimaryKey) {
+            // Drop PRIMARY KEY
+            await conn.query(`ALTER TABLE \`${tableName}\` DROP PRIMARY KEY`);
+        }
+        
+        // Handle UNIQUE constraint separately
+        if (isUnique && !wasUnique) {
+            // Add UNIQUE
+            await conn.query(`ALTER TABLE \`${tableName}\` ADD UNIQUE (\`${newColumnName}\`)`);
+        } else if (!isUnique && wasUnique) {
+            // Drop UNIQUE - need to find index name
+            const [indexes] = await conn.query<any[]>(`
+                SHOW INDEX FROM \`${tableName}\` 
+                WHERE Column_name = ? AND Non_unique = 0 AND Key_name != 'PRIMARY'
+            `, [oldColumnName === newColumnName ? newColumnName : oldColumnName]);
+            
+            if (indexes.length > 0) {
+                await conn.query(`ALTER TABLE \`${tableName}\` DROP INDEX \`${indexes[0].Key_name}\``);
+            }
+        }
     }
 
     async removeColumn(database: string, tableName: string, columnName: string): Promise<void> {

@@ -273,153 +273,19 @@ export class DatabaseManager implements vscode.TreeDataProvider<DatabaseItem> {
         }
     }
 
-    async reorderColumn(
-        connection: Connection,
-        database: string,
-        tableName: string,
-        columnName: string,
-        afterColumn?: string
-    ) {
-        // NOTE: This method currently only works for PostgreSQL
-        // MySQL/MariaDB have different syntax for column reordering
-        if (connection.type !== 'PostgreSQL') {
-            throw new Error('Column reordering is currently only supported for PostgreSQL');
-        }
-
-        const adapter = DatabaseAdapterFactory.createAdapter(connection);
-        
-        try {
-            // PostgreSQL doesn't support direct column reordering
-            // We need to recreate the table with the new column order
-            
-            // Get all columns with their full definition
-            const columnsResult = await adapter.query(database, `
-                SELECT 
-                    column_name,
-                    data_type,
-                    is_nullable,
-                    column_default,
-                    character_maximum_length,
-                    numeric_precision,
-                    numeric_scale
-                FROM information_schema.columns
-                WHERE table_name = $1 AND table_schema = 'public'
-                ORDER BY ordinal_position
-            `, [tableName]);
-
-            // Get primary key
-            const pkResult = await adapter.query(database, `
-                SELECT a.attname
-                FROM pg_index i
-                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                WHERE i.indrelid = $1::regclass AND i.indisprimary
-            `, [tableName]);
-
-            const primaryKeys = pkResult.rows.map((row: any) => row.attname);
-
-            // Get unique constraints
-            const uniqueResult = await adapter.query(database, `
-                SELECT a.attname
-                FROM pg_index i
-                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                WHERE i.indrelid = $1::regclass AND i.indisunique AND NOT i.indisprimary
-            `, [tableName]);
-
-            const uniqueKeys = uniqueResult.rows.map((row: any) => row.attname);
-
-            // Reorder columns array
-            const columns = columnsResult.rows;
-            const columnToMoveIndex = columns.findIndex((c: any) => c.column_name === columnName);
-            const columnToMove = columns[columnToMoveIndex];
-            
-            // Remove from current position
-            columns.splice(columnToMoveIndex, 1);
-            
-            // Insert at new position
-            if (afterColumn) {
-                const afterIndex = columns.findIndex((c: any) => c.column_name === afterColumn);
-                columns.splice(afterIndex + 1, 0, columnToMove);
-            } else {
-                // Move to first
-                columns.unshift(columnToMove);
-            }
-
-            // Create column definitions
-            const columnDefs = columns.map((col: any) => {
-                let def = `"${col.column_name}" ${col.data_type}`;
-                
-                if (col.character_maximum_length) {
-                    def += `(${col.character_maximum_length})`;
-                } else if (col.numeric_precision && col.numeric_scale) {
-                    def += `(${col.numeric_precision},${col.numeric_scale})`;
-                }
-                
-                if (col.column_default) {
-                    def += ` DEFAULT ${col.column_default}`;
-                }
-                
-                if (col.is_nullable === 'NO') {
-                    def += ' NOT NULL';
-                }
-                
-                if (primaryKeys.includes(col.column_name)) {
-                    def += ' PRIMARY KEY';
-                }
-                
-                if (uniqueKeys.includes(col.column_name)) {
-                    def += ' UNIQUE';
-                }
-                
-                return def;
-            }).join(', ');
-
-            const tempTableName = `${tableName}_temp_${Date.now()}`;
-            const columnNames = columns.map((c: any) => `"${c.column_name}"`).join(', ');
-
-            // Begin transaction
-            await adapter.query(database, 'BEGIN');
-            
-            // Create new table with reordered columns
-            await adapter.query(database, `CREATE TABLE "${tempTableName}" (${columnDefs})`);
-            
-            // Copy data
-            await adapter.query(database, `INSERT INTO "${tempTableName}" (${columnNames}) SELECT ${columnNames} FROM "${tableName}"`);
-            
-            // Drop old table
-            await adapter.query(database, `DROP TABLE "${tableName}"`);
-            
-            // Rename temp table to original name
-            await adapter.query(database, `ALTER TABLE "${tempTableName}" RENAME TO "${tableName}"`);
-            
-            // Commit transaction
-            await adapter.query(database, 'COMMIT');
-            
-            await adapter.close();
-            
-            this._onDidChangeTreeData.fire();
-        } catch (error) {
-            try {
-                await adapter.query(database, 'ROLLBACK');
-            } catch (rollbackError) {
-                // Ignore rollback errors
-            }
-            await adapter.close();
-            throw error;
-        }
-    }
-
     async addColumnToTable(
         connection: Connection, 
         database: string, 
         tableName: string, 
         columnName: string, 
         columnType: string,
-        constraints: string[]
+        constraints: string[],
+        defaultValue?: string
     ) {
         const adapter = DatabaseAdapterFactory.createAdapter(connection);
         
         try {
-            await adapter.addColumn(database, tableName, columnName, columnType, constraints);
+            await adapter.addColumn(database, tableName, columnName, columnType, constraints, defaultValue);
             await adapter.close();
             
             this._onDidChangeTreeData.fire();

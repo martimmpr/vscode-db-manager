@@ -1,5 +1,23 @@
 # Change Log
 
+## [1.1.0] - 02-01-2026
+
+### Added
+- Added New Interface for Connection Management
+- Added New Interface for Table Creation/Editing
+
+### Fixed
+- Fixed Table Name not Updating after Rename
+- Fixed New Interface Bugs:
+  - Auto-reload TableViewer after column operations (add/edit/delete)
+  - Added optional default value field in add/edit column forms
+  - Fixed UNIQUE and PRIMARY KEY constraints loading in edit column form
+  - Implemented full constraint support (NOT NULL, UNIQUE, PRIMARY KEY, AUTO_INCREMENT/IDENTITY) in both MySQL and PostgreSQL adapters
+  - Changed from DROP/ADD to MODIFY approach to preserve data when editing columns
+  - Fixed duplicate column addition bug (was adding column twice)
+  - Added success notification when column is added
+  - Removed preventive duplicate column validation that caused false positives
+
 ## [1.0.1] - 27-12-2025
 
 ### Fixed

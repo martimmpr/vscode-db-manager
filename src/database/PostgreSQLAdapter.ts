@@ -71,7 +71,7 @@ export class PostgreSQLAdapter implements IDatabaseAdapter {
             return `"${col.name}" ${col.type} ${constraints}`.trim();
         }).join(', ');
         
-        const query = `CREATE TABLE "${tableName}" (${columnDefs})`;
+        const query = `CREATE TABLE IF NOT EXISTS "${tableName}" (${columnDefs})`;
         await client.query(query);
     }
 
@@ -85,20 +85,132 @@ export class PostgreSQLAdapter implements IDatabaseAdapter {
         await client.query(`ALTER TABLE "${oldTableName}" RENAME TO "${newTableName}"`);
     }
 
-    async addColumn(database: string, tableName: string, columnName: string, columnType: string, constraints: string[]): Promise<void> {
+    async addColumn(database: string, tableName: string, columnName: string, columnType: string, constraints: string[], defaultValue?: string): Promise<void> {
         const client = await this.getClient(database);
         
         let alterQuery = `ALTER TABLE "${tableName}" ADD COLUMN "${columnName}" ${columnType}`;
         
+        // Add DEFAULT before constraints
+        if (defaultValue !== undefined && defaultValue !== '') {
+            // Handle special keywords and string values
+            if (['CURRENT_TIMESTAMP', 'NULL', 'TRUE', 'FALSE', 'NOW()'].includes(defaultValue.toUpperCase())) {
+                alterQuery += ` DEFAULT ${defaultValue.toUpperCase()}`;
+            } else if (!isNaN(Number(defaultValue))) {
+                // Numeric value
+                alterQuery += ` DEFAULT ${defaultValue}`;
+            } else {
+                // String value - escape single quotes
+                alterQuery += ` DEFAULT '${defaultValue.replace(/'/g, "''")}'`;
+            }
+        }
+        
         if (constraints.includes('NOT NULL')) {
             alterQuery += ' NOT NULL';
         }
-        
         if (constraints.includes('UNIQUE')) {
             alterQuery += ' UNIQUE';
         }
-        
+        if (constraints.includes('GENERATED ALWAYS AS IDENTITY')) {
+            alterQuery += ' GENERATED ALWAYS AS IDENTITY';
+        }
         await client.query(alterQuery);
+    }
+
+    async modifyColumn(database: string, tableName: string, oldColumnName: string, newColumnName: string, columnType: string, constraints: string[], defaultValue?: string): Promise<void> {
+        const client = await this.getClient(database);
+        
+        // Get existing constraints to compare
+        const existingPK = await this.getPrimaryKeys(database, tableName);
+        const existingUnique = await this.getUniqueKeys(database, tableName);
+        
+        const isPrimaryKey = constraints.includes('PRIMARY KEY');
+        const isUnique = constraints.includes('UNIQUE');
+        const isAutoIncrement = constraints.includes('GENERATED ALWAYS AS IDENTITY');
+        const isNotNull = constraints.includes('NOT NULL');
+        
+        // Rename column if name changed
+        if (oldColumnName !== newColumnName) {
+            await client.query(`ALTER TABLE "${tableName}" RENAME COLUMN "${oldColumnName}" TO "${newColumnName}"`);
+        }
+        
+        // Handle PRIMARY KEY constraint
+        const wasPrimaryKey = existingPK.includes(oldColumnName);
+        if (isPrimaryKey && !wasPrimaryKey) {
+            // Add PRIMARY KEY
+            await client.query(`ALTER TABLE "${tableName}" ADD PRIMARY KEY ("${newColumnName}")`);
+        } else if (!isPrimaryKey && wasPrimaryKey) {
+            // Drop PRIMARY KEY - need to find constraint name
+            const pkQuery = await client.query(`
+                SELECT conname 
+                FROM pg_constraint 
+                WHERE conrelid = $1::regclass AND contype = 'p'
+            `, [tableName]);
+            if (pkQuery.rows.length > 0) {
+                await client.query(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${pkQuery.rows[0].conname}"`);
+            }
+        }
+        
+        // Handle UNIQUE constraint
+        const wasUnique = existingUnique.includes(oldColumnName);
+        if (isUnique && !wasUnique) {
+            // Add UNIQUE
+            await client.query(`ALTER TABLE "${tableName}" ADD UNIQUE ("${newColumnName}")`);
+        } else if (!isUnique && wasUnique) {
+            // Drop UNIQUE - need to find constraint name
+            const uniqueQuery = await client.query(`
+                SELECT conname 
+                FROM pg_constraint 
+                WHERE conrelid = $1::regclass AND contype = 'u' AND $2 = ANY(SELECT attname FROM pg_attribute WHERE attrelid = conrelid AND attnum = ANY(conkey))
+            `, [tableName, newColumnName]);
+            if (uniqueQuery.rows.length > 0) {
+                await client.query(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${uniqueQuery.rows[0].conname}"`);
+            }
+        }
+        
+        // Change data type (if not IDENTITY)
+        if (!isAutoIncrement) {
+            await client.query(`ALTER TABLE "${tableName}" ALTER COLUMN "${newColumnName}" TYPE ${columnType}`);
+        }
+        
+        // Handle IDENTITY (AUTO_INCREMENT)
+        const hasIdentity = await client.query(`
+            SELECT column_default 
+            FROM information_schema.columns 
+            WHERE table_name = $1 AND column_name = $2 AND column_default LIKE 'nextval%'
+        `, [tableName, newColumnName]);
+        const wasAutoIncrement = hasIdentity.rows.length > 0;
+        
+        if (isAutoIncrement && !wasAutoIncrement) {
+            // Add IDENTITY
+            await client.query(`ALTER TABLE "${tableName}" ALTER COLUMN "${newColumnName}" ADD GENERATED ALWAYS AS IDENTITY`);
+        } else if (!isAutoIncrement && wasAutoIncrement) {
+            // Drop IDENTITY
+            await client.query(`ALTER TABLE "${tableName}" ALTER COLUMN "${newColumnName}" DROP IDENTITY IF EXISTS`);
+        }
+        
+        // Set/Drop default (only if not AUTO_INCREMENT)
+        if (!isAutoIncrement) {
+            if (defaultValue !== undefined && defaultValue !== '') {
+                let defaultExpr;
+                if (['CURRENT_TIMESTAMP', 'NULL', 'TRUE', 'FALSE', 'NOW()'].includes(defaultValue.toUpperCase())) {
+                    defaultExpr = defaultValue.toUpperCase();
+                } else if (!isNaN(Number(defaultValue))) {
+                    defaultExpr = defaultValue;
+                } else {
+                    defaultExpr = `'${defaultValue.replace(/'/g, "''")}'`;
+                }
+                await client.query(`ALTER TABLE "${tableName}" ALTER COLUMN "${newColumnName}" SET DEFAULT ${defaultExpr}`);
+            } else {
+                await client.query(`ALTER TABLE "${tableName}" ALTER COLUMN "${newColumnName}" DROP DEFAULT`);
+            }
+        }
+        
+        // Set/Drop NOT NULL
+        if (isNotNull) {
+            await client.query(`ALTER TABLE "${tableName}" ALTER COLUMN "${newColumnName}" SET NOT NULL`);
+        } else {
+            await client.query(`ALTER TABLE "${tableName}" ALTER COLUMN "${newColumnName}" DROP NOT NULL`);
+        }
     }
 
     async removeColumn(database: string, tableName: string, columnName: string): Promise<void> {
