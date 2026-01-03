@@ -1,5 +1,10 @@
 # Change Log
 
+## [1.1.1] - 03-01-2026
+
+### Added
+- Added [CONTRIBUTING.md](CONTRIBUTING.md) with step-by-step guide for contributors
+
 ## [1.1.0] - 02-01-2026
 
 ### Added
