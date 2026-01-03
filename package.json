@@ -227,26 +227,28 @@
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
     "esbuild": "npm run esbuild-base -- --sourcemap",
     "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && npm run copy-wasm",
     "watch": "tsc -watch -p ./",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "copy-wasm": "ncp ./node_modules/sql.js/dist/sql-wasm.wasm ./dist/sql-wasm.wasm"
   },
   "dependencies": {
     "mysql2": "^3.16.0",
     "pg": "^8.11.0",
-    "sqlite3": "^5.1.7",
+    "sql.js": "^1.13.0",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^16.18.126",
     "@types/pg": "^8.6.6",
-    "@types/sqlite3": "^3.1.11",
+    "@types/sql.js": "^1.4.9",
     "@types/ssh2": "^1.15.5",
     "@types/vscode": "^1.80.0",
     "esbuild": "^0.27.2",
     "jest": "^30.2.0",
+    "ncp": "^2.0.0",
     "ts-jest": "^29.4.6",
     "typescript": "^5.0.4"
   }

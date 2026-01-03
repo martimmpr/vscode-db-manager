@@ -125,13 +125,18 @@ export class ConnectionEditor {
     private async testConnection(data: any): Promise<void> {
         try {
             const connection = this.buildConnection(data);
-            const adapter = DatabaseAdapterFactory.createAdapter(connection);
             
             ConnectionEditor.currentPanel?.webview.postMessage({
                 command: 'testingConnection',
                 message: 'Testing connection...'
             });
 
+            let adapter;
+            try {
+                adapter = DatabaseAdapterFactory.createAdapter(connection);
+            } catch (error) {
+                throw new Error('Unsupported database type: ' + connection.type);
+            }
             await adapter.testConnection();
             await adapter.close();
 

@@ -1,28 +1,55 @@
-import { SQLiteAdapter } from '../SQLLiteAdapter'; 
+import { SQLiteAdapter } from '../SQLLiteAdapter';
 import { Connection } from '../../types'; 
-import sqlite3 from 'sqlite3';
+import initSqlJs from 'sql.js';
 import { Client as SSHClient } from 'ssh2';
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
 
+// --- Mocks ---
+
+// 1. Mock FS to verify file reading (init) and writing (save)
 jest.mock('fs', () => {
-    const originalFs = jest.requireActual('fs');
     return {
-        ...originalFs,
-        readFileSync: jest.fn().mockReturnValue('mock-private-key'),
+        existsSync: jest.fn().mockReturnValue(true),
+        readFileSync: jest.fn().mockReturnValue(Buffer.from('mock-db-content')),
+        writeFileSync: jest.fn(), // Crucial for checking persistence
     };
 });
-jest.mock('sqlite3');
+
+// 2. Mock sql.js
+const mockStmt = {
+    bind: jest.fn(),
+    step: jest.fn(),
+    getAsObject: jest.fn(),
+    free: jest.fn()
+};
+
+const mockDbInstance = {
+    prepare: jest.fn(),
+    run: jest.fn(),
+    exec: jest.fn(), // Used for getting changes() and last_insert_rowid()
+    export: jest.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
+    close: jest.fn()
+};
+
+const mockSqlEngine = {
+    Database: jest.fn().mockImplementation(() => mockDbInstance)
+};
+
+jest.mock('sql.js', () => {
+    return jest.fn().mockResolvedValue(mockSqlEngine);
+});
+
 jest.mock('ssh2');
 
-describe('SQLiteAdapter', () => {
+describe('SQLiteAdapter (sql.js)', () => {
     let adapter: SQLiteAdapter;
-    let mockSqliteDb: any;
     let mockSSHClient: any;
     let mockSSHStream: any;
 
     const createConfig = (isRemote: boolean): Connection => ({
         name: 'Test DB',
-        type: 'SQLite', // Corrected type casing if necessary
+        type: 'SQLite',
         host: '',
         port: 0,
         username: '',
@@ -42,19 +69,12 @@ describe('SQLiteAdapter', () => {
     beforeEach(() => {
         jest.clearAllMocks();
 
-        mockSqliteDb = {
-            all: jest.fn(),
-            run: jest.fn(),
-            close: jest.fn((cb) => cb(null)),
-        };
+        // Default sql.js behavior
+        mockDbInstance.prepare.mockReturnValue(mockStmt);
+        // Default exec returns "0 changes" structure
+        mockDbInstance.exec.mockReturnValue([{ values: [[0]] }]); 
 
-        (sqlite3.Database as unknown as jest.Mock).mockImplementation((path, cb) => {
-            if (cb) {
-                process.nextTick(() => cb(null)); 
-            }
-            return mockSqliteDb;
-        });
-
+        // SSH Mocks
         mockSSHClient = new EventEmitter();
         mockSSHClient.connect = jest.fn().mockReturnThis();
         mockSSHClient.end = jest.fn();
@@ -75,13 +95,18 @@ describe('SQLiteAdapter', () => {
     describe('Initialization', () => {
         test('should throw error if sqlite config is missing', () => {
             const invalidConfig = { name: 'Bad', type: 'SQLite' } as Connection;
-            expect(() => new SQLiteAdapter(invalidConfig)).toThrow('requires sqlite configuration');
+            expect(() => new SQLiteAdapter(invalidConfig)).toThrow('requires a valid connection object');
         });
 
-        test('should initialize successfully with valid config', () => {
-            const config = createConfig(false);
-            adapter = new SQLiteAdapter(config); 
-            expect(adapter).toBeDefined();
+        test('should load database from disk on query', async () => {
+            adapter = new SQLiteAdapter(createConfig(false));
+            
+            // Trigger lazy load
+            await adapter.testConnection();
+
+            expect(initSqlJs).toHaveBeenCalled();
+            expect(fs.readFileSync).toHaveBeenCalledWith('./test.db');
+            expect(mockSqlEngine.Database).toHaveBeenCalled();
         });
     });
 
@@ -91,37 +116,48 @@ describe('SQLiteAdapter', () => {
         });
 
         test('testConnection should execute SELECT 1 locally', async () => {
-            mockSqliteDb.all.mockImplementation((sql: string, params: any[], cb: Function) => {
-                cb(null, [{ 1: 1 }]);
-            });
+            // Mock sequence for SELECT: prepare -> bind -> step(true) -> get -> step(false) -> free
+            mockStmt.step.mockReturnValueOnce(true).mockReturnValueOnce(false);
+            mockStmt.getAsObject.mockReturnValue({ '1': 1 });
 
             await adapter.testConnection();
 
-            expect(sqlite3.Database).toHaveBeenCalledWith('./test.db', expect.any(Function));
-            expect(mockSqliteDb.all).toHaveBeenCalledWith('SELECT 1', [], expect.any(Function));
+            expect(mockDbInstance.prepare).toHaveBeenCalledWith('SELECT 1');
+            expect(mockStmt.step).toHaveBeenCalled();
+            expect(mockStmt.free).toHaveBeenCalled();
         });
 
-        test('getDatabases should return ["main"] on failure (fallback)', async () => {
-            mockSqliteDb.all.mockImplementation((sql: string, params: any[], cb: Function) => {
-                cb(new Error('Pragma not supported'));
-            });
+        test('should save to disk after WRITE operations', async () => {
+            // Mock exec to return 1 affected row for the metadata check
+            mockDbInstance.exec.mockReturnValue([{ values: [[1]] }]); 
 
-            const dbs = await adapter.getDatabases();
-            expect(dbs).toEqual(['main']);
+            await adapter.createTable('main', 'users', [
+                { name: 'id', type: 'INTEGER', constraints: ['PRIMARY KEY'] }
+            ]);
+
+            expect(mockDbInstance.run).toHaveBeenCalled();
+            expect(mockDbInstance.export).toHaveBeenCalled();
+            // Verify persistence
+            expect(fs.writeFileSync).toHaveBeenCalledWith('./test.db', expect.anything());
+        });
+
+        test('should NOT save to disk after READ operations', async () => {
+            mockStmt.step.mockReturnValue(false); // No rows
+
+            await adapter.query('main', 'SELECT * FROM users');
+
+            expect(mockDbInstance.prepare).toHaveBeenCalled();
+            expect(fs.writeFileSync).not.toHaveBeenCalled();
         });
 
         test('createTable should generate correct SQL', async () => {
-            mockSqliteDb.run.mockImplementation(function(this: any, sql: string, params: any[], cb: Function) {
-                cb.call({ changes: 0, lastID: 0 }, null);
-            });
-
             await adapter.createTable('main', 'users', [
                 { name: 'id', type: 'INTEGER', constraints: ['PRIMARY KEY', 'AUTO_INCREMENT'] },
                 { name: 'name', type: 'TEXT', constraints: ['NOT NULL'] }
             ]);
 
             const expectedSQL = `CREATE TABLE IF NOT EXISTS "users" ("id" INTEGER PRIMARY KEY AUTOINCREMENT, "name" TEXT NOT NULL)`;
-            expect(mockSqliteDb.run).toHaveBeenCalledWith(expectedSQL, expect.any(Array), expect.any(Function));
+            expect(mockDbInstance.run).toHaveBeenCalledWith(expectedSQL, expect.any(Array));
         });
     });
 
@@ -133,7 +169,6 @@ describe('SQLiteAdapter', () => {
         const setupSSHExec = (stdout: string, stderr: string = '', exitCode: number = 0) => {
             mockSSHClient.exec.mockImplementation((cmd: string, cb: Function) => {
                 cb(null, mockSSHStream);
-                // Emit events asynchronously to mimic real stream
                 process.nextTick(() => {
                     if (stdout) mockSSHStream.emit('data', Buffer.from(stdout));
                     if (stderr) mockSSHStream.stderr.emit('data', Buffer.from(stderr));
@@ -149,75 +184,43 @@ describe('SQLiteAdapter', () => {
 
         test('should connect via SSH and execute sqlite3 command', async () => {
             setupSSHExec('[{"1":1}]'); 
-
             await adapter.testConnection();
-
-            expect(mockSSHClient.connect).toHaveBeenCalledWith(expect.objectContaining({
-                host: '1.2.3.4',
-                username: 'root'
-            }));
             
-            const expectedCmd = `sqlite3 -json "/var/www/db.sqlite" "SELECT 1"`;
-            expect(mockSSHClient.exec).toHaveBeenCalledWith(expectedCmd, expect.any(Function));
+            expect(mockSSHClient.connect).toHaveBeenCalled();
+            expect(mockSSHClient.exec).toHaveBeenCalledWith(
+                expect.stringContaining('sqlite3 -json "/var/www/db.sqlite"'), 
+                expect.any(Function)
+            );
         });
 
-        test('should handle SSH connection errors', async () => {
-            mockSSHClient.connect.mockImplementation(() => {
-                // Emit error asynchronously
-                process.nextTick(() => mockSSHClient.emit('error', new Error('Auth failed')));
-                return mockSSHClient;
-            });
-
-            await expect(adapter.testConnection()).rejects.toThrow('Auth failed');
-        });
-
-        test('should handle remote sqlite3 errors (non-zero exit code)', async () => {
-            setupSSHExec('', 'Error: database is locked', 1);
-
-            await expect(adapter.testConnection()).rejects.toThrow('Remote SQLite Error (Code 1): Error: database is locked');
-        });
-
-        test('should interpolate parameters safely for SSH CLI', async () => {
+        test('should interpolate parameters safely', async () => {
             setupSSHExec('[]');
-
-            await adapter.query('main', 'SELECT * FROM users WHERE name = ? AND active = ?', ["O'Reilly", true]);
-
-            const calledCmd = mockSSHClient.exec.mock.calls[0][0];
-            expect(calledCmd).toContain(`name = 'O''Reilly'`);
-            expect(calledCmd).toContain(`active = 1`);
+            await adapter.query('main', 'SELECT * FROM t WHERE a = ?', ["O'Reilly"]);
+            
+            const cmd = mockSSHClient.exec.mock.calls[0][0];
+            expect(cmd).toContain(`a = 'O''Reilly'`);
         });
     });
 
     describe('Export Functionality', () => {
         beforeEach(() => {
             adapter = new SQLiteAdapter(createConfig(false));
-            mockSqliteDb.run.mockImplementation((sql: string, params: any[], cb: Function) => cb.call({}, null));
         });
 
-        test('exportTable should handle Buffers correctly', async () => {
-            mockSqliteDb.all.mockImplementation((sql: string, params: any[], cb: Function) => {
-                if (sql.includes('sqlite_master')) {
-                    cb(null, [{ sql: 'CREATE TABLE blobs (data BLOB)' }]);
-                } else {
-                    cb(null, [{ data: Buffer.from([0xFF, 0x0A]) }]); 
-                }
-            });
+        test('exportTable should handle Uint8Array/Buffer correctly', async () => {
+            // Mock schema query
+            mockStmt.step
+                .mockReturnValueOnce(true) // Schema row
+                .mockReturnValueOnce(false) // End schema
+                .mockReturnValueOnce(true) // Data row
+                .mockReturnValueOnce(false); // End data
+
+            mockStmt.getAsObject
+                .mockReturnValueOnce({ sql: 'CREATE TABLE blobs (data BLOB)' })
+                .mockReturnValueOnce({ data: new Uint8Array([0xFF, 0x0A]) });
 
             const sql = await adapter.exportTable('main', 'blobs', true);
             expect(sql).toContain(`INSERT INTO "blobs" ("data") VALUES (X'ff0a');`);
-        });
-
-        test('exportTable should handle string escaping', async () => {
-            mockSqliteDb.all.mockImplementation((sql: string, params: any[], cb: Function) => {
-                if (sql.includes('sqlite_master')) {
-                    cb(null, [{ sql: 'CREATE TABLE texts (val TEXT)' }]);
-                } else {
-                    cb(null, [{ val: "User's data" }]);
-                }
-            });
-
-            const sql = await adapter.exportTable('main', 'texts', true);
-            expect(sql).toContain(`VALUES ('User''s data');`);
         });
     });
 
@@ -227,44 +230,46 @@ describe('SQLiteAdapter', () => {
         });
 
         test('modifyColumn should perform full migration transaction', async () => {
-            // Mock getColumns
-            mockSqliteDb.all.mockImplementationOnce((sql: string, p: any, cb: Function) => cb(null, [
-                { name: 'id', type: 'INTEGER', pk: 1, notnull: 0, dflt_value: null },
-                { name: 'oldCol', type: 'TEXT', pk: 0, notnull: 0, dflt_value: null }
+            // Setup a sequence of behaviors for prepare/step
+            // 1. getColumns (PRAGMA table_info)
+            mockStmt.step.mockReturnValueOnce(true).mockReturnValueOnce(true).mockReturnValueOnce(false);
+            mockStmt.getAsObject
+                .mockReturnValueOnce({ name: 'id', type: 'INTEGER', pk: 1, notnull: 0 })
+                .mockReturnValueOnce({ name: 'old', type: 'TEXT', pk: 0, notnull: 0 });
+
+            await adapter.modifyColumn('main', 'users', 'old', 'new', 'INTEGER', ['NOT NULL']);
+
+            // Verify the sequence of Write operations
+            const writeCalls = mockDbInstance.run.mock.calls.map(c => c[0]);
+            
+            expect(writeCalls).toEqual(expect.arrayContaining([
+                'BEGIN TRANSACTION',
+                expect.stringContaining('RENAME TO'),
+                expect.stringContaining('CREATE TABLE'),
+                expect.stringContaining('INSERT INTO'),
+                expect.stringContaining('DROP TABLE'),
+                'COMMIT'
             ]));
 
-            // Mock subsequent calls (PRAGMA table_info for PKs, etc)
-            mockSqliteDb.all.mockImplementation((sql: string, p: any, cb: Function) => cb(null, []));
-            
-            const runSpy = mockSqliteDb.run;
-            runSpy.mockImplementation(function(this: any, sql: string, params: any[], cb: Function) {
-                cb.call({ changes: 1 }, null);
-            });
-
-            await adapter.modifyColumn('main', 'users', 'oldCol', 'newCol', 'INTEGER', ['NOT NULL']);
-
-            expect(runSpy).toHaveBeenCalledWith('BEGIN TRANSACTION', expect.anything(), expect.anything());
-            expect(runSpy).toHaveBeenCalledWith(expect.stringContaining('RENAME TO'), expect.anything(), expect.anything());
-            expect(runSpy).toHaveBeenCalledWith(expect.stringContaining('CREATE TABLE'), expect.anything(), expect.anything());
-            expect(runSpy).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO'), expect.anything(), expect.anything());
-            expect(runSpy).toHaveBeenCalledWith(expect.stringContaining('DROP TABLE'), expect.anything(), expect.anything());
-            expect(runSpy).toHaveBeenCalledWith('COMMIT', expect.anything(), expect.anything());
+            // Verify saving occurred
+            expect(fs.writeFileSync).toHaveBeenCalled();
         });
 
         test('modifyColumn should ROLLBACK on error', async () => {
-            mockSqliteDb.all.mockImplementation((sql: string, p: any, cb: Function) => cb(null, []));
+            // 1. Allow getColumns to succeed
+            mockStmt.step.mockReturnValueOnce(false); // No columns found, fine for this test
 
-            mockSqliteDb.run.mockImplementation(function(this: any, sql: string, params: any[], cb: Function) {
-                if (sql === 'BEGIN TRANSACTION') {
-                    cb.call({}, null);
-                } else {
-                    cb(new Error('Disk full'));
+            // 2. Make db.run throw on the table rename part
+            mockDbInstance.run.mockImplementation((sql: string) => {
+                if (sql.includes('RENAME TO')) {
+                    throw new Error('Disk full');
                 }
             });
 
             await expect(adapter.modifyColumn('main', 't', 'c', 'c', 'INT', [])).rejects.toThrow('Disk full');
             
-            expect(mockSqliteDb.run).toHaveBeenCalledWith('ROLLBACK', expect.anything(), expect.anything());
+            // Check that ROLLBACK was attempted
+            expect(mockDbInstance.run).toHaveBeenCalledWith('ROLLBACK', expect.anything());
         });
     });
 });

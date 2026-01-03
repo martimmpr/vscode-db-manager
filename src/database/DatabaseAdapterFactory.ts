@@ -15,7 +15,7 @@ export class DatabaseAdapterFactory {
             case 'MariaDB':
                 return new MariaDBAdapter(connection);
             case 'SQLite':
-                throw new SQLiteAdapter(connection);
+                return new SQLiteAdapter(connection);
             default:
                 throw new Error(`Unsupported database type: ${connection.type}`);
         }
