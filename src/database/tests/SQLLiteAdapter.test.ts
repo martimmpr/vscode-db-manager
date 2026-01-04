@@ -1,4 +1,4 @@
-import { SQLiteAdapter } from '../SQLLiteAdapter';
+import { SQLiteAdapter } from '../SQLiteAdapter';
 import { Connection } from '../../types'; 
 import initSqlJs from 'sql.js';
 import { Client as SSHClient } from 'ssh2';

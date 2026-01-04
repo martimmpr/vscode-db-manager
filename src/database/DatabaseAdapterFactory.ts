@@ -3,7 +3,7 @@ import { IDatabaseAdapter } from './IDatabaseAdapter';
 import { PostgreSQLAdapter } from './PostgreSQLAdapter';
 import { MySQLAdapter } from './MySQLAdapter';
 import { MariaDBAdapter } from './MariaDBAdapter';
-import { SQLiteAdapter } from './SQLLiteAdapter';
+import { SQLiteAdapter } from './SQLiteAdapter';
 
 export class DatabaseAdapterFactory {
     static createAdapter(connection: Connection): IDatabaseAdapter {

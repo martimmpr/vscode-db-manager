@@ -214,13 +214,22 @@ export class TableViewer {
         if (!this.adapter || !this.currentDatabase || !this.currentConnection || !TableViewer.currentPanel) return;
 
         try {
-            // parallel fetching
-            const [columnsResult, primaryKeys, uniqueKeys, identityColumns] = await Promise.all([
-                this.adapter.getColumns(this.currentDatabase, tableName),
-                this.adapter.getPrimaryKeys(this.currentDatabase, tableName),
-                this.adapter.getUniqueKeys(this.currentDatabase, tableName),
-                this.getIdentityColumns(tableName) 
-            ]);
+            let columnsResult, primaryKeys, uniqueKeys, identityColumns;
+
+            try {
+                [columnsResult, primaryKeys, uniqueKeys, identityColumns] = await Promise.all([
+                    this.adapter.getColumns(this.currentDatabase, tableName),
+                    this.adapter.getPrimaryKeys(this.currentDatabase, tableName),
+                    this.adapter.getUniqueKeys(this.currentDatabase, tableName),
+                    this.getIdentityColumns(tableName)
+                ]);
+            } catch (err) {
+                // If Parallel fails (e.g., SSH Channel limit), switch to SEQUENTIAL (Safest)
+                columnsResult = await this.adapter.getColumns(this.currentDatabase, tableName);
+                primaryKeys = await this.adapter.getPrimaryKeys(this.currentDatabase, tableName);
+                uniqueKeys = await this.adapter.getUniqueKeys(this.currentDatabase, tableName);
+                identityColumns = await this.getIdentityColumns(tableName);
+            }
 
             const isPostgres = this.currentConnection.type === 'PostgreSQL';
             const isSQLite = this.currentConnection.type === 'SQLite';
