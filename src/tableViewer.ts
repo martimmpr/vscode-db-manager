@@ -214,105 +214,82 @@ export class TableViewer {
         if (!this.adapter || !this.currentDatabase || !this.currentConnection || !TableViewer.currentPanel) return;
 
         try {
-            // Get table structure using adapter
-            const columnsResult = await this.adapter.getColumns(this.currentDatabase, tableName);
-            
-            // Get primary keys
-            const primaryKeys = await this.adapter.getPrimaryKeys(this.currentDatabase, tableName);
-            
-            // Get unique keys
-            const uniqueKeys = await this.adapter.getUniqueKeys(this.currentDatabase, tableName);
+            // parallel fetching
+            const [columnsResult, primaryKeys, uniqueKeys, identityColumns] = await Promise.all([
+                this.adapter.getColumns(this.currentDatabase, tableName),
+                this.adapter.getPrimaryKeys(this.currentDatabase, tableName),
+                this.adapter.getUniqueKeys(this.currentDatabase, tableName),
+                this.getIdentityColumns(tableName) 
+            ]);
 
-            // Get identity/auto-increment columns (database-specific)
-            let identityColumns: string[] = [];
-            if (this.currentConnection.type === 'PostgreSQL') {
-                const identityResult = await this.adapter.query(this.currentDatabase, `
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = $1 
-                    AND table_schema = 'public'
-                    AND (is_identity = 'YES' OR column_default LIKE 'nextval%')
-                `, [tableName]);
-                identityColumns = identityResult.rows.map((row: any) => row.column_name);
-            } else {
-                // MySQL/MariaDB
-                const identityResult = await this.adapter.query(this.currentDatabase, `
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = ? 
-                    AND table_schema = ?
-                    AND extra LIKE '%auto_increment%'
-                `, [tableName, this.currentDatabase]);
-                identityColumns = identityResult.map((row: any) => row.column_name);
-            }
-
-            // Build query (database-specific)
             const isPostgres = this.currentConnection.type === 'PostgreSQL';
-            const tableIdentifier = isPostgres ? tableName : `\`${tableName}\``;
+            const isSQLite = this.currentConnection.type === 'SQLite';
+            
+            const tableIdentifier = (isPostgres || isSQLite) ? `"${tableName}"` : `\`${tableName}\``;
+            
             let query = `SELECT * FROM ${tableIdentifier}`;
             const params: any[] = [];
             let paramIndex = 1;
 
+            let whereClause = '';
+
             if (search) {
                 if (isPostgres) {
+                    // Uses $1, $2 and ILIKE
                     const searchConditions = columnsResult
                         .map((col: any) => `${col.column_name}::text ILIKE $${paramIndex}`)
                         .join(' OR ');
-                    query += ` WHERE ${searchConditions}`;
+                    whereClause = ` WHERE ${searchConditions}`;
                     params.push(`%${search}%`);
                     paramIndex++;
-                } else {
-                    // MySQL/MariaDB
+                } else if (!isSQLite) {
+                    // MySQL/MariaDB: Uses backticks ` ` and ?
                     const searchConditions = columnsResult
-                        .map((col: any, idx: number) => `\`${col.column_name}\` LIKE ?`)
+                        .map((col: any) => `\`${col.column_name}\` LIKE ?`)
                         .join(' OR ');
-                    query += ` WHERE ${searchConditions}`;
-                    // Add search param for each column
+                    whereClause = ` WHERE ${searchConditions}`;
+                    columnsResult.forEach(() => params.push(`%${search}%`));
+                } else {
+                    // SQLite: Uses double quotes " " and ? 
+                    const searchConditions = columnsResult
+                        .map((col: any) => `"${col.column_name}" LIKE ?`)
+                        .join(' OR ');
+                    whereClause = ` WHERE ${searchConditions}`;
                     columnsResult.forEach(() => params.push(`%${search}%`));
                 }
+                query += whereClause;
             }
 
-            // Get total count
-            let countQuery: string;
-            let countParams: any[] = [];
-            
-            if (search) {
-                if (isPostgres) {
-                    countQuery = `SELECT COUNT(*) FROM ${tableIdentifier} WHERE ${columnsResult
-                        .map((col: any) => `${col.column_name}::text ILIKE $1`)
-                        .join(' OR ')}`;
-                    countParams = [`%${search}%`];
-                } else {
-                    countQuery = `SELECT COUNT(*) FROM ${tableIdentifier} WHERE ${columnsResult
-                        .map((col: any) => `\`${col.column_name}\` LIKE ?`)
-                        .join(' OR ')}`;
-                    columnsResult.forEach(() => countParams.push(`%${search}%`));
-                }
-            } else {
-                countQuery = `SELECT COUNT(*) FROM ${tableIdentifier}`;
-            }
-            
-            const countResult = await this.adapter.query(this.currentDatabase, countQuery, countParams);
-            const totalRows = isPostgres 
-                ? parseInt(countResult.rows[0].count) 
-                : parseInt(countResult[0]['COUNT(*)']);
+            let countQuery = `SELECT COUNT(*) FROM ${tableIdentifier} ${whereClause}`;
+            let countParams = search ? params : []; 
 
-            // Add ORDER BY clause if sort is specified
             if (sortColumn && sortDirection) {
-                const columnIdentifier = isPostgres ? sortColumn : `\`${sortColumn}\``;
+                const columnIdentifier = (isPostgres || isSQLite) ? `"${sortColumn}"` : `\`${sortColumn}\``;
                 query += ` ORDER BY ${columnIdentifier} ${sortDirection.toUpperCase()}`;
             }
 
-            // Add LIMIT and OFFSET
             if (isPostgres) {
                 query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-                params.push(limit, offset);
             } else {
                 query += ` LIMIT ? OFFSET ?`;
-                params.push(limit, offset);
+            }
+            
+            const [dataResult, countResult] = await Promise.all([
+                this.adapter.query(this.currentDatabase, query, isPostgres ? [...params, limit, offset] : [...params, limit, offset]),
+                this.adapter.query(this.currentDatabase, countQuery, isPostgres ? (search ? [`%${search}%`] : []) : countParams)
+            ]);
+
+            let totalRows = 0;
+            if (isPostgres) {
+                totalRows = parseInt(countResult.rows[0].count);
+            } else {
+                const firstRow = countResult[0];
+                if (firstRow) {
+                    const key = Object.keys(firstRow).find(k => k.toUpperCase() === 'COUNT(*)') || Object.keys(firstRow)[0];
+                    totalRows = parseInt(firstRow[key]);
+                }
             }
 
-            const dataResult = await this.adapter.query(this.currentDatabase, query, params);
             const rows = isPostgres ? dataResult.rows : dataResult;
 
             TableViewer.currentPanel.webview.html = this.getWebviewContent(
@@ -336,11 +313,34 @@ export class TableViewer {
         }
     }
 
+    // Helper to keep the main function clean
+    private async getIdentityColumns(tableName: string): Promise<string[]> {
+        if (!this.adapter || !this.currentDatabase || !this.currentConnection) return [];
+
+        if (this.currentConnection.type === 'PostgreSQL') {
+            const res = await this.adapter.query(this.currentDatabase, `
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = $1 AND table_schema = 'public'
+                AND (is_identity = 'YES' OR column_default LIKE 'nextval%')
+            `, [tableName]);
+            return res.rows.map((r: any) => r.column_name);
+        } else if (this.currentConnection.type === 'SQLite') {
+            const res = await this.adapter.query(this.currentDatabase, `PRAGMA table_info("${tableName}")`);
+            return res.filter((r: any) => r.pk > 0 && r.type.toUpperCase() === 'INTEGER').map((r: any) => r.name);
+        } else {
+            const res = await this.adapter.query(this.currentDatabase, `
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = ? AND table_schema = ?
+                AND extra LIKE '%auto_increment%'
+            `, [tableName, this.currentDatabase]);
+            return res.map((r: any) => r.column_name);
+        }
+    }
+
     private async deleteRow(tableName: string, row: any, skipReload: boolean = false) {
         if (!this.adapter || !this.currentDatabase || !this.currentConnection) return false;
 
         try {
-            // Get primary key columns
             const primaryKeys = await this.adapter.getPrimaryKeys(this.currentDatabase, tableName);
 
             if (primaryKeys.length === 0) {

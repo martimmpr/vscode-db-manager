@@ -6,7 +6,6 @@ import { Buffer } from 'buffer';
 import { Connection, SQLiteConnectionParams } from '../types';
 import { IDatabaseAdapter, ColumnDefinition, ColumnInfo, QueryResult } from './IDatabaseAdapter';
 
-// --- Internal Types ---
 interface TableInfoRow {
     cid: number;
     name: string;
@@ -51,30 +50,20 @@ export class SQLiteAdapter implements IDatabaseAdapter {
         this.connectionConfig = connection;
     }
 
-    /**
-     * Initialize the sql.js engine and load the database file.
-     * sql.js initialization is asynchronous.
-     */
     private async initLocalConnection(config: SQLiteConnectionParams): Promise<Database> {
         if (this.db) return this.db;
 
-        // 1. Initialize the WASM engine
         if (!this.SQL) {
             try {
-                // Locate the WASM file in the dist folder
                 const wasmPath = path.join(__dirname, '..', 'sql-wasm.wasm');
-                
                 this.SQL = await initSqlJs({
-                    // Point to the local wasm file so it doesn't try to fetch from CDN
                     locateFile: () => wasmPath
                 });
             } catch (e) {
-                // Fallback: try loading without path (depends on environment)
                 this.SQL = await initSqlJs();
             }
         }
 
-        // 2. Read the file from disk (if it exists)
         let buffer: Buffer | null = null;
         if (config.filePath && config.filePath !== ':memory:' && fs.existsSync(config.filePath)) {
             try {
@@ -84,14 +73,10 @@ export class SQLiteAdapter implements IDatabaseAdapter {
             }
         }
 
-        // 3. Create the DB instance (from file buffer or new)
         this.db = new this.SQL.Database(buffer);
         return this.db!;
     }
 
-    /**
-     * Since sql.js is in-memory, we must manually save changes back to disk.
-     */
     private saveDatabase(config: SQLiteConnectionParams) {
         if (!this.db || !config.filePath || config.filePath === ':memory:') return;
 
@@ -118,23 +103,16 @@ export class SQLiteAdapter implements IDatabaseAdapter {
     private async queryLocal<T>(sql: string, params: any[], config: SQLiteConnectionParams): Promise<T[]> {
         const db = await this.initLocalConnection(config);
         
-        // sql.js expects params as an array or object, but it handles binding differently
-        // We need to ensure params are JS primitives
         const safeParams = params.map(p => {
              if (typeof p === 'boolean') return p ? 1 : 0;
              return p;
         });
 
         try {
-            // Determine if this is a read or write for saving purposes
             const upperSql = sql.trim().toUpperCase();
             const isWrite = /^(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|PRAGMA)/.test(upperSql) && !upperSql.startsWith('PRAGMA TABLE_INFO');
 
-            // .exec() returns an array of result sets, but it doesn't support binding easily.
-            // .prepare() + .step() is safer for params, but .run() is easiest for writes.
-            
             if (upperSql.startsWith('SELECT') || upperSql.startsWith('PRAGMA')) {
-                // For SELECT, we use prepare/step/getAsObject to get nice JSON
                 const stmt = db.prepare(sql);
                 stmt.bind(safeParams);
                 
@@ -145,11 +123,8 @@ export class SQLiteAdapter implements IDatabaseAdapter {
                 stmt.free();
                 return rows;
             } else {
-                // For Writes
                 db.run(sql, safeParams);
                 
-                // Emulate "affectedRows" and "insertId"
-                // sql.js doesn't give these easily in .run(), so we query them
                 const changes = db.exec("SELECT changes()")[0]?.values[0][0] as number || 0;
                 const lastId = db.exec("SELECT last_insert_rowid()")[0]?.values[0][0] as number || 0;
 
@@ -165,9 +140,15 @@ export class SQLiteAdapter implements IDatabaseAdapter {
         }
     }
 
-    // --- SSH Implementation (Unchanged, uses CLI) ---
     private async getSSHConnection(config: SQLiteConnectionParams): Promise<SSHClient> {
-        if (this.sshClient) return this.sshClient;
+        if (this.sshClient && (this.sshClient as any)._sock && (this.sshClient as any)._sock.writable) {
+            return this.sshClient;
+        }
+
+        if (this.sshClient) {
+            this.sshClient.end();
+            this.sshClient = null;
+        }
 
         return new Promise((resolve, reject) => {
             const conn = new SSHClient();
@@ -175,7 +156,10 @@ export class SQLiteAdapter implements IDatabaseAdapter {
                 this.sshClient = conn;
                 resolve(conn);
             }).on('error', (err) => {
+                this.sshClient = null;
                 reject(err);
+            }).on('end', () => {
+                this.sshClient = null;
             }).connect({
                 host: config.sshConfig!.host,
                 port: config.sshConfig!.port,
@@ -184,7 +168,9 @@ export class SQLiteAdapter implements IDatabaseAdapter {
                 privateKey: config.sshConfig!.privateKeyPath 
                     ? fs.readFileSync(config.sshConfig!.privateKeyPath) 
                     : undefined,
-                passphrase: config.sshConfig!.passphrase
+                passphrase: config.sshConfig!.passphrase,
+                keepaliveInterval: 10000, 
+                readyTimeout: 20000 
             });
         });
     }
@@ -192,7 +178,8 @@ export class SQLiteAdapter implements IDatabaseAdapter {
     private async queryRemote<T>(sql: string, params: any[], config: SQLiteConnectionParams): Promise<T[]> {
         const conn = await this.getSSHConnection(config);
         const populatedSql = this.interpolateParams(sql, params);
-        const cmd = `sqlite3 -json "${config.filePath}" "${populatedSql.replace(/"/g, '\\"')}"`;
+        const separator = "|||";
+        const cmd = `sqlite3 -header -separator "${separator}" "${config.filePath}"`;
 
         return new Promise((resolve, reject) => {
             conn.exec(cmd, (err, stream) => {
@@ -202,17 +189,54 @@ export class SQLiteAdapter implements IDatabaseAdapter {
 
                 stream.on('close', (code: number) => {
                     if (code !== 0) {
-                        reject(new Error(`Remote SQLite Error (Code ${code}): ${stderr || 'Unknown'}`));
+                        reject(new Error(`Remote SQLite Error (Code ${code}): ${stderr || stdout || 'Unknown error'}`));
                     } else {
                         try {
-                            if (!stdout.trim()) resolve([] as T[]);
-                            else resolve(JSON.parse(stdout));
+                            if (!stdout.trim()) {
+                                resolve([] as T[]);
+                                return;
+                            }
+
+                            const lines = stdout.trim().split('\n');
+                            if (lines.length < 2) {
+                                resolve([] as T[]);
+                                return;
+                            }
+                            const headers = lines[0].split(separator).map(h => h.trim());
+                            const rows: any[] = [];
+
+                            for (let i = 1; i < lines.length; i++) {
+                                const line = lines[i];
+                                if (!line.trim()) continue;
+
+                                const values = line.split(separator);
+                                const row: any = {};
+                                
+                                headers.forEach((header, index) => {
+                                    let val = values[index];
+                                    if (val === undefined || val === 'NULL' || val === '') {
+                                        row[header] = null;
+                                    } else if (!isNaN(Number(val)) && val.trim() !== '') {
+                                        row[header] = Number(val);
+                                    } else {
+                                        row[header] = val;
+                                    }
+                                });
+                                rows.push(row);
+                            }
+
+                            resolve(rows as T[]);
                         } catch (e) {
-                            reject(new Error(`Failed to parse remote response: ${e}`));
+                            reject(new Error(`Failed to parse remote output: ${e}`));
                         }
                     }
-                }).on('data', (data: Buffer) => stdout += data.toString())
-                  .stderr.on('data', (data: Buffer) => stderr += data.toString());
+                }).on('data', (data: Buffer) => {
+                    stdout += data.toString();
+                }).stderr.on('data', (data: Buffer) => {
+                    stderr += data.toString();
+                });
+                stream.write(populatedSql + ";\n");
+                stream.end(); 
             });
         });
     }
@@ -238,14 +262,11 @@ export class SQLiteAdapter implements IDatabaseAdapter {
         }
     }
 
-    // --- Standard Interface Implementation ---
-
     async testConnection(): Promise<void> {
         await this.queryInternal('SELECT 1');
     }
 
     async getDatabases(): Promise<string[]> {
-        // SQLite only has one DB per file usually attached as 'main'
         return ['main'];
     }
 
@@ -297,6 +318,9 @@ export class SQLiteAdapter implements IDatabaseAdapter {
     }
 
     async addColumn(database: string, tableName: string, columnName: string, columnType: string, constraints: string[], defaultValue?: string): Promise<void> {
+        const isUnique = constraints.includes('UNIQUE');
+        const simpleConstraints = constraints.filter(c => c !== 'UNIQUE');
+
         let alterQuery = `ALTER TABLE "${tableName}" ADD COLUMN "${columnName}" ${columnType}`;
         if (defaultValue !== undefined && defaultValue !== '') {
              if (['CURRENT_TIMESTAMP', 'NULL', 'TRUE', 'FALSE'].includes(defaultValue.toUpperCase())) {
@@ -307,13 +331,18 @@ export class SQLiteAdapter implements IDatabaseAdapter {
                 alterQuery += ` DEFAULT '${defaultValue.replace(/'/g, "''")}'`;
             }
         }
-        if (constraints.includes('NOT NULL')) alterQuery += ' NOT NULL';
-        if (constraints.includes('UNIQUE')) alterQuery += ' UNIQUE';
+        
+        if (simpleConstraints.includes('NOT NULL')) {
+            alterQuery += ' NOT NULL';
+        }
         await this.queryInternal(alterQuery);
+        if (isUnique) {
+            const indexName = `idx_${tableName}_${columnName}_${Date.now()}`;
+            await this.queryInternal(`CREATE UNIQUE INDEX "${indexName}" ON "${tableName}" ("${columnName}")`);
+        }
     }
 
     async modifyColumn(database: string, tableName: string, oldColumnName: string, newColumnName: string, columnType: string, constraints: string[], defaultValue?: string): Promise<void> {
-        // SQLite doesn't support direct column modification, requires recreation
         const currentColumns = await this.getColumns(database, tableName);
         const currentPKs = await this.getPrimaryKeys(database, tableName);
         
