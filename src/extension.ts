@@ -5,7 +5,7 @@ import { SqlQueryRunner } from './sqlQueryRunner';
 import { ConnectionEditor } from './connectionEditor';
 import { TableEditor } from './tableEditor';
 import { Connection } from './types';
-import { DatabaseAdapterFactory, DatabaseDetector } from './database';
+import { DatabaseAdapterFactory } from './database';
 
 export function activate(context: vscode.ExtensionContext) {
     const databaseManager = new DatabaseManager(context);

@@ -77,9 +77,6 @@ export class SQLiteAdapter implements IDatabaseAdapter {
         return this.db!;
     }
 
-    // FIX: Implemented atomic writes to prevent database corruption
-    // Previous code wrote directly to the file, risking corruption if interrupted
-    // Now uses write-to-temp + atomic rename pattern
     private saveDatabase(config: SQLiteConnectionParams) {
         if (!this.db || !config.filePath || config.filePath === ':memory:') return;
 
@@ -111,9 +108,7 @@ export class SQLiteAdapter implements IDatabaseAdapter {
 
     private async queryLocal<T>(sql: string, params: any[], config: SQLiteConnectionParams): Promise<T[]> {
         const db = await this.initLocalConnection(config);
-        
-        // FIX: Enhanced type validation to handle undefined and bigint
-        // Previous code only converted booleans, missing other problematic types
+
         const safeParams = params.map(p => {
             if (p === undefined) return null;
             if (typeof p === 'boolean') return p ? 1 : 0;
@@ -154,9 +149,6 @@ export class SQLiteAdapter implements IDatabaseAdapter {
         }
     }
 
-    // FIX: Improved SSH connection validation without accessing private properties (_sock)
-    // Previous code accessed internal implementation details which is bad practice
-    // Now simply reuses existing connection if available, or creates new one
     private async getSSHConnection(config: SQLiteConnectionParams): Promise<SSHClient> {
         if (this.sshClient) {
             try {
@@ -235,9 +227,6 @@ export class SQLiteAdapter implements IDatabaseAdapter {
                                 const values = line.split(separator);
                                 const row: any = {};
                                 
-                                // FIX: Improved number parsing to avoid treating empty strings as numbers
-                                // Previous code: Number("  ") returns 0, not NaN
-                                // Now properly validates non-empty trimmed values before converting
                                 headers.forEach((header, index) => {
                                     let val = values[index];
 
@@ -272,8 +261,6 @@ export class SQLiteAdapter implements IDatabaseAdapter {
         });
     }
 
-    // FIX: interpolateParams to replace ALL placeholders using regex replace with callback
-    // Previous code used .replace('?', safe) which only replaces the FIRST occurrence this caused queries with multiple parameters to fail or produce incorrect results
     private interpolateParams(sql: string, params: any[]): string {
         let index = 0;
 

@@ -190,22 +190,20 @@ export class ConnectionEditor {
         const { name, type, connectionMode, host, port, username, password, url, sqlitePath, useSSH, sshHost, sshPort, sshUsername, sshPassword, sshKeyPath, sshPassphrase } = data;
 
         if (type === 'SQLite') {
-            // Since Host/Port/User/Pass are mandatory in your Connection interface,
-            // we must provide dummy values for SQLite.
+            // Host/Port/User/Pass are mandatory in your Connection interface, we must provide dummy values for SQLite.
             const config: Connection = {
                 name,
                 type: 'SQLite',
-                host: '',      // Dummy value
-                port: 0,       // Dummy value
-                username: '',  // Dummy value
-                password: '',  // Dummy value
+                host: '',
+                port: 0,
+                username: '',
+                password: '',
                 sqlite: {
                     filePath: sqlitePath,
                     useSSH: !!useSSH
                 }
             };
 
-            // FIX: Added validation for SSH configuration
             if (useSSH) {
                 if (!sshHost || sshHost.trim() === '') {
                     throw new Error('SSH host is required when using SSH tunnel!');
@@ -242,7 +240,6 @@ export class ConnectionEditor {
                 name,
                 type,
                 ...parsedUrl
-                // Removed database property as it doesn't exist in your interface
             };
         } else {
             return {
@@ -252,7 +249,6 @@ export class ConnectionEditor {
                 port: parseInt(port),
                 username,
                 password
-                // Removed database property as it doesn't exist in your interface
             };
         }
     }
