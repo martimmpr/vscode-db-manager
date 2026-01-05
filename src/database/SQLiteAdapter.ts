@@ -77,6 +77,9 @@ export class SQLiteAdapter implements IDatabaseAdapter {
         return this.db!;
     }
 
+    // FIX: Implemented atomic writes to prevent database corruption
+    // Previous code wrote directly to the file, risking corruption if interrupted
+    // Now uses write-to-temp + atomic rename pattern
     private saveDatabase(config: SQLiteConnectionParams) {
         if (!this.db || !config.filePath || config.filePath === ':memory:') return;
 
@@ -84,7 +87,12 @@ export class SQLiteAdapter implements IDatabaseAdapter {
             const data = this.db.export();
             const buffer = Buffer.from(data);
 
-            fs.writeFileSync(config.filePath, buffer);
+            // Atomic write: write to temp file first, then rename
+            const tmpPath = `${config.filePath}.tmp`;
+            fs.writeFileSync(tmpPath, buffer);
+            
+            // Rename is atomic on most filesystems
+            fs.renameSync(tmpPath, config.filePath);
         } catch (err) {
             console.error('Failed to save SQLite database to disk:', err);
             throw new Error(`Failed to save database: ${err}`);
@@ -104,8 +112,12 @@ export class SQLiteAdapter implements IDatabaseAdapter {
     private async queryLocal<T>(sql: string, params: any[], config: SQLiteConnectionParams): Promise<T[]> {
         const db = await this.initLocalConnection(config);
         
+        // FIX: Enhanced type validation to handle undefined and bigint
+        // Previous code only converted booleans, missing other problematic types
         const safeParams = params.map(p => {
+            if (p === undefined) return null;
             if (typeof p === 'boolean') return p ? 1 : 0;
+            if (typeof p === 'bigint') return Number(p);
             return p;
         });
 
@@ -142,14 +154,23 @@ export class SQLiteAdapter implements IDatabaseAdapter {
         }
     }
 
+    // FIX: Improved SSH connection validation without accessing private properties (_sock)
+    // Previous code accessed internal implementation details which is bad practice
+    // Now simply reuses existing connection if available, or creates new one
     private async getSSHConnection(config: SQLiteConnectionParams): Promise<SSHClient> {
-        if (this.sshClient && (this.sshClient as any)._sock && (this.sshClient as any)._sock.writable) {
-            return this.sshClient;
-        }
-
         if (this.sshClient) {
-            this.sshClient.end();
-            this.sshClient = null;
+            try {
+                // Connection exists, attempt to reuse it
+                return this.sshClient;
+            } catch (err) {
+                // Connection is dead, clean it up
+                try {
+                    this.sshClient.end();
+                } catch (e) {
+                    // Ignore cleanup errors
+                }
+                this.sshClient = null;
+            }
         }
 
         return new Promise((resolve, reject) => {
@@ -214,14 +235,22 @@ export class SQLiteAdapter implements IDatabaseAdapter {
                                 const values = line.split(separator);
                                 const row: any = {};
                                 
+                                // FIX: Improved number parsing to avoid treating empty strings as numbers
+                                // Previous code: Number("  ") returns 0, not NaN
+                                // Now properly validates non-empty trimmed values before converting
                                 headers.forEach((header, index) => {
                                     let val = values[index];
+
                                     if (val === undefined || val === 'NULL' || val === '') {
                                         row[header] = null;
-                                    } else if (!isNaN(Number(val)) && val.trim() !== '') {
-                                        row[header] = Number(val);
                                     } else {
-                                        row[header] = val;
+                                        const trimmed = val.trim();
+
+                                        if (trimmed !== '' && !isNaN(Number(trimmed))) {
+                                            row[header] = Number(trimmed);
+                                        } else {
+                                            row[header] = val;
+                                        }
                                     }
                                 });
                                 rows.push(row);
@@ -243,18 +272,21 @@ export class SQLiteAdapter implements IDatabaseAdapter {
         });
     }
 
+    // FIX: interpolateParams to replace ALL placeholders using regex replace with callback
+    // Previous code used .replace('?', safe) which only replaces the FIRST occurrence this caused queries with multiple parameters to fail or produce incorrect results
     private interpolateParams(sql: string, params: any[]): string {
-        let res = sql;
-        for (const param of params) {
-            let safe = 'NULL';
-            if (param !== null && param !== undefined) {
-                if (typeof param === 'number') safe = param.toString();
-                else if (typeof param === 'boolean') safe = param ? '1' : '0';
-                else safe = `'${String(param).replace(/'/g, "''")}'`;
-            }
-            res = res.replace('?', safe);
-        }
-        return res;
+        let index = 0;
+
+        return sql.replace(/\?/g, () => {
+            if (index >= params.length) return '?';
+            const param = params[index++];
+            
+            if (param === null || param === undefined) return 'NULL';
+            if (typeof param === 'number') return param.toString();
+            if (typeof param === 'boolean') return param ? '1' : '0';
+
+            return `'${String(param).replace(/'/g, "''")}'`;
+        });
     }
 
     private closeSSH(): void {

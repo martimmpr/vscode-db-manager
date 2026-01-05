@@ -205,11 +205,29 @@ export class ConnectionEditor {
                 }
             };
 
+            // FIX: Added validation for SSH configuration
             if (useSSH) {
+                if (!sshHost || sshHost.trim() === '') {
+                    throw new Error('SSH host is required when using SSH tunnel!');
+                }
+
+                const parsedSSHPort = parseInt(sshPort);
+                if (isNaN(parsedSSHPort) || parsedSSHPort < 1 || parsedSSHPort > 65535) {
+                    throw new Error('SSH port must be a valid number between 1 and 65535!');
+                }
+
+                if (!sshUsername || sshUsername.trim() === '') {
+                    throw new Error('SSH username is required when using SSH tunnel!');
+                }
+
+                if (!sshPassword && !sshKeyPath) {
+                    throw new Error('Either SSH password or private key must be provided!');
+                }
+
                 config.sqlite!.sshConfig = {
-                    host: sshHost,
-                    port: parseInt(sshPort),
-                    username: sshUsername,
+                    host: sshHost.trim(),
+                    port: parsedSSHPort,
+                    username: sshUsername.trim(),
                     password: sshPassword || undefined,
                     privateKeyPath: sshKeyPath || undefined,
                     passphrase: sshPassphrase || undefined
