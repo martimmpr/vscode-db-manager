@@ -1,5 +1,10 @@
 # Change Log
 
+## [1.2.0] - 05-01-2026
+
+### Added
+- Added SQLite database support
+
 ## [1.1.1] - 03-01-2026
 
 ### Added
