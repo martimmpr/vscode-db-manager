@@ -1,5 +1,11 @@
 # Change Log
 
+## [1.2.3] - 05-01-2026
+
+### Fixed
+- Fixed default values and placeholders in connection editor
+- Fixed SQLite visibility in URL connection mode
+
 ## [1.2.2] - 05-01-2026
 
 ### Added
