@@ -10,7 +10,7 @@ Manage your PostgreSQL, MySQL, MariaDB and SQLite databases directly in VS Code.
 - **SQL Query Runner** - Execute queries with `Ctrl+Enter` keyboard shortcut
 - **Query Results** - View query results with syntax highlighting and field types
 - **Export Options** - Export query results to CSV/SQL and full database exports
-- **Integrated Terminal** - Open native database CLI (psql, mysql, mariadb) directly in VS Code
+- **Integrated Terminal** - Open native database CLI (psql, mysql, mariadb, sqlite3) directly in VS Code
 - **Real-time Refresh** - Keep your data up to date
 - **Search & Filter** - Filter databases, tables and search within table data
 - **Modern UI** - Clean interface with support for light and dark themes
