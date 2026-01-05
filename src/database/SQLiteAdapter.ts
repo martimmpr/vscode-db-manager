@@ -55,7 +55,7 @@ export class SQLiteAdapter implements IDatabaseAdapter {
 
         if (!this.SQL) {
             try {
-                const wasmPath = path.join(__dirname, '..', 'sql-wasm.wasm');
+                const wasmPath = path.join(__dirname, 'sql-wasm.wasm');
                 this.SQL = await initSqlJs({
                     locateFile: () => wasmPath
                 });
@@ -423,7 +423,7 @@ export class SQLiteAdapter implements IDatabaseAdapter {
 
         return rows.map(row => ({
             column_name: row.name,
-            data_type: row.type,
+            data_type: row.type.toLowerCase(),
             is_nullable: row.notnull === 0 ? 'YES' : 'NO',
             column_default: row.dflt_value
         }));
