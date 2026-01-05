@@ -1,20 +1,21 @@
+jest.mock('fs', () => {
+    return {
+        existsSync: jest.fn().mockReturnValue(true),
+        readFileSync: jest.fn().mockReturnValue(Buffer.from('mock-db-content')),
+        writeFileSync: jest.fn(),
+        renameSync: jest.fn(),
+    };
+});
+
+jest.mock('sql.js', () => jest.fn());
+jest.mock('ssh2');
+
 import { SQLiteAdapter } from '../SQLiteAdapter';
 import { Connection } from '../../types'; 
 import initSqlJs from 'sql.js';
 import { Client as SSHClient } from 'ssh2';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
-
-jest.mock('fs', () => {
-    return {
-        existsSync: jest.fn().mockReturnValue(true),
-        readFileSync: jest.fn().mockReturnValue(Buffer.from('mock-db-content')),
-        writeFileSync: jest.fn(),
-    };
-});
-
-jest.mock('sql.js', () => jest.fn());
-jest.mock('ssh2');
 
 describe('SQLiteAdapter (sql.js)', () => {
     let adapter: SQLiteAdapter;
@@ -121,7 +122,8 @@ describe('SQLiteAdapter (sql.js)', () => {
             await adapter.createTable('main', 'users', [{ name: 'id', type: 'INTEGER', constraints: ['PRIMARY KEY'] }]);
             expect(mockDbInstance.run).toHaveBeenCalled();
             expect(mockDbInstance.export).toHaveBeenCalled();
-            expect(fs.writeFileSync).toHaveBeenCalledWith('./test.db', expect.anything());
+            expect(fs.writeFileSync).toHaveBeenCalledWith('./test.db.tmp', expect.anything());
+            expect(fs.renameSync).toHaveBeenCalledWith('./test.db.tmp', './test.db');
         });
 
         test('should NOT save to disk after READ operations', async () => {
@@ -185,7 +187,6 @@ describe('SQLiteAdapter (sql.js)', () => {
         });
     });
 
-    // ... (Export and Schema Modifications tests remain the same) ...
     describe('Export Functionality', () => {
         beforeEach(() => {
             adapter = new SQLiteAdapter(createConfig(false));

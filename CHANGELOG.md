@@ -1,5 +1,13 @@
 # Change Log
 
+## [1.2.5] - 05-01-2026
+
+### Added
+- Added comprehensive test suites for PostgreSQL, MySQL, and MariaDB adapters
+
+### Fixed
+- Fixed SQLite test mocks by moving declarations before imports to ensure Jest hoisting
+
 ## [1.2.4] - 05-01-2026
 
 ### Added

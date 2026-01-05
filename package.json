@@ -2,7 +2,7 @@
   "name": "vscode-db-manager",
   "displayName": "Database Manager",
   "description": "PostgreSQL + MySQL + MariaDB + SQLite Database Manager for VSCode",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "publisher": "martimmpr",
   "author": {
     "name": "Martim 'martimmpr' Ribeiro"

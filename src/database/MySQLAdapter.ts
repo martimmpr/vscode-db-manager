@@ -51,9 +51,7 @@ export class MySQLAdapter implements IDatabaseAdapter {
         const [rows] = await conn.query<mysql.RowDataPacket[]>(
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY schema_name"
         );
-        console.log('MySQL getDatabases result:', rows);
         const databases = rows.map(row => row.SCHEMA_NAME || row.schema_name);
-        console.log('MySQL databases mapped:', databases);
         return databases;
     }
 
