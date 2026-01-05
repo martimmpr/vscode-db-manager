@@ -438,7 +438,7 @@ export class ConnectionEditor {
                 <div class="grid-2">
                     <div class="form-group">
                         <label for="host">Host <span class="required">*</span></label>
-                        <input type="text" id="host" name="host" value="${host}" placeholder="localhost" />
+                        <input type="text" id="host" name="host" ${isEditing ? `value="${host}"` : ''} placeholder="localhost" />
                     </div>
                     <div class="form-group">
                         <label for="port">Port <span class="required">*</span></label>
@@ -448,12 +448,12 @@ export class ConnectionEditor {
 
                 <div class="form-group">
                     <label for="username">Username <span class="required">*</span></label>
-                    <input type="text" id="username" name="username" value="${username}" placeholder="postgres" />
+                    <input type="text" id="username" name="username" ${isEditing ? `value="${username}"` : ''} placeholder="postgres" />
                 </div>
 
                 <div class="form-group">
                     <label for="password">Password <span class="required">*</span></label>
-                    <input type="password" id="password" name="password" value="${password}" placeholder="••••••••" />
+                    <input type="password" id="password" name="password" ${isEditing ? `value="${password}"` : ''} placeholder="••••••••" />
                 </div>
             </div>
 
@@ -559,6 +559,29 @@ export class ConnectionEditor {
                     document.getElementById('individualMode').classList.add('active');
                 }
             }
+            
+            // Hide/show SQLite option based on connection mode
+            const sqliteIcon = document.querySelector('.type-icon[data-type="SQLite"]');
+            if (currentMode === 'url' && !isSQLite) {
+                sqliteIcon.style.display = 'none';
+            } else {
+                sqliteIcon.style.display = 'flex';
+            }
+            
+            // Update URL placeholder based on selected database type
+            if (!isSQLite && currentMode === 'url') {
+                const urlInput = document.getElementById('url');
+                let placeholder = '';
+                if (currentType === 'PostgreSQL') {
+                    placeholder = 'postgresql://username:password@host:5432/database';
+                } else if (currentType === 'MySQL') {
+                    placeholder = 'mysql://username:password@host:3306/database';
+                } else if (currentType === 'MariaDB') {
+                    placeholder = 'mariadb://username:password@host:3306/database';
+                }
+                urlInput.placeholder = placeholder;
+            }
+            
             updateRequiredFields();
         }
 
@@ -588,8 +611,19 @@ export class ConnectionEditor {
                 currentType = icon.dataset.type;
                 document.getElementById('type').value = currentType;
                 
-                if (currentType === 'PostgreSQL') document.getElementById('port').value = '5432';
-                if (currentType === 'MySQL' || currentType === 'MariaDB') document.getElementById('port').value = '3306';
+                // Update default port value and placeholders based on database type
+                if (currentType === 'PostgreSQL') {
+                    document.getElementById('port').value = '5432';
+                    document.getElementById('username').placeholder = 'postgres';
+                }
+                if (currentType === 'MySQL') {
+                    document.getElementById('port').value = '3306';
+                    document.getElementById('username').placeholder = 'mysql';
+                }
+                if (currentType === 'MariaDB') {
+                    document.getElementById('port').value = '3306';
+                    document.getElementById('username').placeholder = 'mariadb';
+                }
 
                 updateUIState();
             });
