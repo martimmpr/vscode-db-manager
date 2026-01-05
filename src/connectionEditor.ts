@@ -187,7 +187,7 @@ export class ConnectionEditor {
     }
 
     private buildConnection(data: any): Connection {
-        const { name, type, connectionMode, host, port, username, password, url, sqlitePath, useSSH, sshHost, sshPort, sshUsername, sshPassword, sshKeyPath, sshPassphrase } = data;
+        const { name, type, connectionMode, host, port, username, password, database, url, sqlitePath, useSSH, sshHost, sshPort, sshUsername, sshPassword, sshKeyPath, sshPassphrase } = data;
 
         if (type === 'SQLite') {
             // Host/Port/User/Pass are mandatory in your Connection interface, we must provide dummy values for SQLite.
@@ -242,7 +242,7 @@ export class ConnectionEditor {
                 ...parsedUrl
             };
         } else {
-            return {
+            const connection: Connection = {
                 name,
                 type,
                 host,
@@ -250,26 +250,38 @@ export class ConnectionEditor {
                 username,
                 password
             };
+
+            if (database) {
+                connection.database = database;
+            }
+            
+            return connection;
         }
     }
 
-    private parseConnectionUrl(url: string, type: DatabaseType): { host: string; port: number; username: string; password: string } {
+    private parseConnectionUrl(url: string, type: DatabaseType): { host: string; port: number; username: string; password: string; database?: string } {
         try {
-            const urlPattern = /^(?:postgresql|mysql|mariadb):\/\/([^:]+):([^@]+)@([^:]+):(\d+)(?:\/.*)?$/;
+            const urlPattern = /^(?:postgresql|mysql|mariadb):\/\/([^:]+):([^@]+)@([^:]+):(\d+)(?:\/([^?]*))?/;
             const match = url.match(urlPattern);
             
             if (!match) {
                 throw new Error('Invalid connection URL format. Expected: protocol://username:password@host:port/database');
             }
 
-            const [, username, password, host, port] = match;
+            const [, username, password, host, port, database] = match;
             
-            return {
+            const result: { host: string; port: number; username: string; password: string; database?: string } = {
                 host,
                 port: parseInt(port),
                 username,
                 password
             };
+            
+            if (database) {
+                result.database = database;
+            }
+            
+            return result;
         } catch (error) {
             throw new Error('Failed to parse connection URL: ' + (error instanceof Error ? error.message : 'Unknown error'));
         }
@@ -291,6 +303,7 @@ export class ConnectionEditor {
         const port = existingConnection?.port || (type === 'PostgreSQL' ? 5432 : 3306);
         const username = existingConnection?.username || '';
         const password = existingConnection?.password || '';
+        const database = existingConnection?.database || '';
         
         // SQLite values
         const sqlitePath = existingConnection?.sqlite?.filePath || '';
@@ -305,7 +318,7 @@ export class ConnectionEditor {
         const sshPassphrase = existingConnection?.sqlite?.sshConfig?.passphrase || '';
 
         const connectionUrl = (existingConnection && type !== 'SQLite')
-            ? `${type.toLowerCase()}://${username}:${password}@${host}:${port}/`
+            ? `${type.toLowerCase()}://${username}:${password}@${host}:${port}${database ? '/' + database : ''}`
             : '';
 
         // Load SVG icons
@@ -455,6 +468,12 @@ export class ConnectionEditor {
                     <label for="password">Password <span class="required">*</span></label>
                     <input type="password" id="password" name="password" ${isEditing ? `value="${password}"` : ''} placeholder="••••••••" />
                 </div>
+
+                <div class="form-group">
+                    <label for="database">Database (Optional)</label>
+                    <input type="text" id="database" name="database" ${isEditing ? `value="${database}"` : ''} placeholder="mydatabase" />
+                    <div class="help-text">Leave empty to connect without a specific database</div>
+                </div>
             </div>
 
             <div id="urlMode" class="mode-content">
@@ -573,11 +592,11 @@ export class ConnectionEditor {
                 const urlInput = document.getElementById('url');
                 let placeholder = '';
                 if (currentType === 'PostgreSQL') {
-                    placeholder = 'postgresql://username:password@host:5432/database';
+                    placeholder = 'postgresql://username:password@localhost:5432/mydatabase';
                 } else if (currentType === 'MySQL') {
-                    placeholder = 'mysql://username:password@host:3306/database';
+                    placeholder = 'mysql://username:password@localhost:3306/mydatabase';
                 } else if (currentType === 'MariaDB') {
-                    placeholder = 'mariadb://username:password@host:3306/database';
+                    placeholder = 'mariadb://username:password@localhost:3306/mydatabase';
                 }
                 urlInput.placeholder = placeholder;
             }
@@ -699,7 +718,8 @@ export class ConnectionEditor {
                     data.port = document.getElementById('port').value.trim();
                     data.username = document.getElementById('username').value.trim();
                     data.password = document.getElementById('password').value;
-                    // Database field removed from here
+                    const dbValue = document.getElementById('database').value.trim();
+                    if (dbValue) data.database = dbValue;
                 }
             }
             return data;

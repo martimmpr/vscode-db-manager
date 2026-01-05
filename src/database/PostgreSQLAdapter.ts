@@ -5,10 +5,11 @@ import { IDatabaseAdapter, ColumnDefinition, ColumnInfo, QueryResult } from './I
 export class PostgreSQLAdapter implements IDatabaseAdapter {
     private connection: Connection;
     private client: Client | null = null;
-    private currentDatabase: string = 'postgres';
+    private currentDatabase: string;
 
     constructor(connection: Connection) {
         this.connection = connection;
+        this.currentDatabase = connection.database || 'postgres';
     }
 
     private async getClient(database?: string): Promise<Client> {
@@ -43,12 +44,12 @@ export class PostgreSQLAdapter implements IDatabaseAdapter {
     }
 
     async testConnection(): Promise<void> {
-        const client = await this.getClient('postgres');
+        const client = await this.getClient(this.connection.database || 'postgres');
         await client.query('SELECT 1');
     }
 
     async getDatabases(): Promise<string[]> {
-        const client = await this.getClient('postgres');
+        const client = await this.getClient(this.connection.database || 'postgres');
         const result = await client.query(
             "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
         );

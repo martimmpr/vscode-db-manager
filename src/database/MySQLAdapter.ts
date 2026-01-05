@@ -5,10 +5,11 @@ import { IDatabaseAdapter, ColumnDefinition, ColumnInfo, QueryResult } from './I
 export class MySQLAdapter implements IDatabaseAdapter {
     private connection: Connection;
     private mysqlConnection: mysql.Connection | null = null;
-    private currentDatabase: string | null = null;
+    private currentDatabase: string | null;
 
     constructor(connection: Connection) {
         this.connection = connection;
+        this.currentDatabase = connection.database || null;
     }
 
     private async getConnection(database?: string): Promise<mysql.Connection> {
