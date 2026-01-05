@@ -1,5 +1,10 @@
 # Change Log
 
+## [1.2.4] - 05-01-2026
+
+### Added
+- Added optional database field for PostgreSQL, MySQL, and MariaDB connections
+
 ## [1.2.3] - 05-01-2026
 
 ### Fixed

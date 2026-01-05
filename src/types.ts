@@ -25,6 +25,7 @@ export interface Connection {
     port: number;
     username: string;
     password: string;
+    database?: string;
     selectedDatabases?: string[];
     selectedTables?: { [database: string]: string[] };
     sqlite?: SQLiteConnectionParams;
