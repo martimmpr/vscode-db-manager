@@ -1,5 +1,10 @@
 # Change Log
 
+## [1.2.2] - 05-01-2026
+
+### Added
+- Added integrated terminal support for SQLite (sqlite3 CLI)
+
 ## [1.2.1] - 05-01-2026
 
 ### Changed

@@ -409,6 +409,14 @@ export function activate(context: vscode.ExtensionContext) {
                     command = `mysql -u ${connection.username} -h ${connection.host} -P ${connection.port} ${database}`;
                     break;
                 
+                case 'sqlite':
+                    // Create terminal for SQLite
+                    terminal = vscode.window.createTerminal({
+                        name: `${connection.name} - ${database}`
+                    });
+                    command = `sqlite3 ${connection.sqlite?.filePath}`;
+                    break;
+                
                 default:
                     vscode.window.showErrorMessage(`Unsupported database type: ${connection.type}`);
                     return;
