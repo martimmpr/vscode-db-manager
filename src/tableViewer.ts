@@ -322,7 +322,6 @@ export class TableViewer {
         }
     }
 
-    // Helper to keep the main function clean
     private async getIdentityColumns(tableName: string): Promise<string[]> {
         if (!this.adapter || !this.currentDatabase || !this.currentConnection) return [];
 
@@ -332,9 +331,11 @@ export class TableViewer {
                 WHERE table_name = $1 AND table_schema = 'public'
                 AND (is_identity = 'YES' OR column_default LIKE 'nextval%')
             `, [tableName]);
+
             return res.rows.map((r: any) => r.column_name);
         } else if (this.currentConnection.type === 'SQLite') {
             const res = await this.adapter.query(this.currentDatabase, `PRAGMA table_info("${tableName}")`);
+
             return res.filter((r: any) => r.pk > 0 && r.type.toUpperCase() === 'INTEGER').map((r: any) => r.name);
         } else {
             const res = await this.adapter.query(this.currentDatabase, `
@@ -342,6 +343,7 @@ export class TableViewer {
                 WHERE table_name = ? AND table_schema = ?
                 AND extra LIKE '%auto_increment%'
             `, [tableName, this.currentDatabase]);
+            
             return res.map((r: any) => r.column_name);
         }
     }
