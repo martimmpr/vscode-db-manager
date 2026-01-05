@@ -1,8 +1,8 @@
 {
   "name": "vscode-db-manager",
   "displayName": "Database Manager",
-  "description": "PostgreSQL + MySQL + MariaDB Database Manager for VSCode",
-  "version": "1.1.1",
+  "description": "PostgreSQL + MySQL + MariaDB + SQLite Database Manager for VSCode",
+  "version": "1.2.0",
   "publisher": "martimmpr",
   "author": {
     "name": "Martim 'martimmpr' Ribeiro"
@@ -223,22 +223,33 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run esbuild-base -- --minify",
-    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
-    "esbuild": "npm run esbuild-base -- --sourcemap",
+    "vscode:prepublish": "npm run esbuild-base -- --minify && npm run copy-wasm",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:*.node --format=cjs --platform=node",
+    "esbuild": "npm run esbuild-base -- --sourcemap && npm run copy-wasm",
     "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "compile": "tsc -p ./ && npm run copy-wasm",
+    "watch": "tsc -watch -p ./",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "copy-wasm": "ncp ./node_modules/sql.js/dist/sql-wasm.wasm ./dist/sql-wasm.wasm"
   },
   "dependencies": {
     "mysql2": "^3.16.0",
-    "pg": "^8.11.0"
+    "pg": "^8.11.0",
+    "sql.js": "^1.13.0",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
-    "@types/node": "^16.11.7",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^16.18.126",
     "@types/pg": "^8.6.6",
+    "@types/sql.js": "^1.4.9",
+    "@types/ssh2": "^1.15.5",
     "@types/vscode": "^1.80.0",
     "esbuild": "^0.27.2",
+    "jest": "^30.2.0",
+    "ncp": "^2.0.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.0.4"
   }
 }

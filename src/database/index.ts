@@ -3,4 +3,3 @@ export { PostgreSQLAdapter } from './PostgreSQLAdapter';
 export { MySQLAdapter } from './MySQLAdapter';
 export { MariaDBAdapter } from './MariaDBAdapter';
 export { DatabaseAdapterFactory } from './DatabaseAdapterFactory';
-export { DatabaseDetector } from './DatabaseDetector';
