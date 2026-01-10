@@ -1,5 +1,10 @@
 # Change Log
 
+## [1.2.6] - 10-01-2026
+
+### Added
+- Added `Screenshots` section to `README.md`
+
 ## [1.2.5] - 05-01-2026
 
 ### Added
